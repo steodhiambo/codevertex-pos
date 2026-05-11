@@ -1,0 +1,109 @@
+import React from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { X, Bell, Utensils, Coffee, Clock, Trash2 } from 'lucide-react';
+
+interface Notification {
+  id: string;
+  orderNumber: string;
+  table: string;
+  source: 'Kitchen' | 'Bar';
+  message: string;
+  timeAgo: string;
+  isRead: boolean;
+}
+
+const mockNotifications: Notification[] = [
+  { id: '1', orderNumber: '#1024', table: 'T2', source: 'Kitchen', message: 'Order is READY', timeAgo: '2m ago', isRead: false },
+  { id: '2', orderNumber: '#1025', table: 'T4', source: 'Bar', message: 'Drinks are READY', timeAgo: '5m ago', isRead: false },
+  { id: '3', orderNumber: '#1020', table: 'T5', source: 'Kitchen', message: 'Order is READY', timeAgo: '15m ago', isRead: true },
+];
+
+interface NotificationDrawerProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const NotificationDrawer: React.FC<NotificationDrawerProps> = ({ isOpen, onClose }) => {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[110]"
+          />
+          
+          {/* Drawer */}
+          <motion.aside
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-y-0 right-0 w-full max-w-[360px] bg-surface shadow-2xl z-[120] flex flex-col"
+          >
+            <div className="p-6 border-b border-border flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Bell size={24} className="text-primary" />
+                  <span className="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full" />
+                </div>
+                <h2 className="text-xl font-bold text-text-primary">Notifications</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button className="p-2 text-text-secondary hover:text-error transition-colors" title="Clear All">
+                  <Trash2 size={20} />
+                </button>
+                <button onClick={onClose} className="p-2 text-text-secondary hover:bg-bg rounded-full transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {mockNotifications.map((notif) => (
+                <div 
+                  key={notif.id} 
+                  className={`p-4 rounded-card border transition-all ${
+                    notif.isRead 
+                      ? 'bg-surface border-border opacity-70' 
+                      : 'bg-primary-pale/30 border-primary-light shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`p-1.5 rounded-lg ${
+                        notif.source === 'Kitchen' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
+                      }`}>
+                        {notif.source === 'Kitchen' ? <Utensils size={16} /> : <Coffee size={16} />}
+                      </div>
+                      <span className="font-bold text-text-primary text-sm">{notif.orderNumber}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px] font-bold text-text-secondary uppercase">
+                      <Clock size={12} />
+                      {notif.timeAgo}
+                    </div>
+                  </div>
+                  
+                  <p className="text-sm font-bold text-text-primary mb-1">{notif.message}</p>
+                  <p className="text-xs text-text-secondary">Table {notif.table} · {notif.source} Area</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-border bg-bg/50">
+              <button className="w-full h-12 rounded-card bg-surface border border-border text-primary font-bold hover:bg-white transition-colors">
+                Mark All as Read
+              </button>
+            </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
+  );
+};
+
+export default NotificationDrawer;
