@@ -15,7 +15,7 @@ import Stock from './screens/Stock';
 import UserManagement from './screens/UserManagement';
 import PaymentModal from './components/PaymentModal';
 import VoidBillModal from './components/VoidBillModal';
-import { authApi } from './lib/api';
+import { authApi, orderApi } from './lib/api';
 
 type AppStep = 'login' | 'start-shift' | 'main' | 'end-shift';
 type Role = 'Waiter' | 'Kitchen' | 'Bar' | 'Cashier' | 'Receptionist' | 'Manager' | 'Admin';
@@ -71,8 +71,8 @@ function App() {
       
       localStorage.setItem('pos_user', JSON.stringify(userData));
       
-      // If it's a waiter/manager/admin, they might need to start shift
-      if (['Waiter', 'Manager', 'Admin'].includes(userData.role)) {
+      // Only Cashiers need to start shift/enter float
+      if (userData.role === 'Cashier') {
         setStep('start-shift');
       } else {
         setStep('main');
@@ -122,20 +122,32 @@ function App() {
       case 'tables':
         return <FloorPlan onTableSelect={handleTableSelect} />;
       case 'order-entry':
-        return <OrderEntry context={currentOrderContext} waiterId={user?.id || ''} onBack={() => setActiveTab('tables')} />;
+        return (
+          <OrderEntry
+            context={currentOrderContext}
+            waiterId={user?.id || ''}
+            onBack={() => setActiveTab('tables')}
+            onOrderPlaced={user?.role === 'Waiter' ? handleLogout : () => setActiveTab('tables')}
+          />
+        );
       case 'kitchen':
         return <KDS type="kitchen" />;
       case 'bar':
         return <KDS type="bar" />;
       case 'my-bills':
-        return <MyBills />;
+        return <MyBills waiterId={user?.id || ''} />;
       case 'bills':
         return (
-          <BillsList 
+          <BillsList
+            canVoid={user?.role === 'Admin' || user?.role === 'Manager'}
             onBillSelect={(bill) => {
               setSelectedBill(bill);
               setIsPaymentModalOpen(true);
-            }} 
+            }}
+            onBillVoid={(bill) => {
+              setSelectedBill(bill);
+              setIsVoidModalOpen(true);
+            }}
           />
         );
       case 'rooms':
@@ -157,9 +169,10 @@ function App() {
   };
 
   return (
-    <MainLayout 
-      userRole={user?.role || 'Waiter'} 
-      activeTab={activeTab === 'order-entry' ? 'tables' : activeTab} 
+    <MainLayout
+      userRole={user?.role || 'Waiter'}
+      userName={user?.full_name}
+      activeTab={activeTab === 'order-entry' ? 'tables' : activeTab}
       setActiveTab={setActiveTab}
       onLogout={handleLogout}
     >
@@ -176,15 +189,25 @@ function App() {
             }}
             bill={selectedBill}
           />
-          <VoidBillModal 
+          <VoidBillModal
             isOpen={isVoidModalOpen}
             onClose={() => setIsVoidModalOpen(false)}
-            onConfirm={(reason) => {
-              console.log('Voiding bill with reason:', reason);
-              setIsVoidModalOpen(false);
-              setSelectedBill(null);
+            onConfirm={async (reason) => {
+              try {
+                await orderApi.updateStatus(selectedBill.id, 'voided');
+                console.log(`Order ${selectedBill.id} voided. Reason: ${reason}`);
+              } catch (e) {
+                console.error('Failed to void bill', e);
+                alert('Failed to void bill.');
+              } finally {
+                setIsVoidModalOpen(false);
+                setSelectedBill(null);
+              }
             }}
-            bill={selectedBill}
+            bill={{
+              orderNumber: selectedBill.id?.slice(0, 4).toUpperCase() || '',
+              total: Number(selectedBill.total) || 0,
+            }}
           />
         </>
       )}

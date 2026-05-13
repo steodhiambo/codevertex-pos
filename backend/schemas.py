@@ -20,6 +20,14 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     user: Profile
     message: str
+
+class ProfileCreate(BaseModel):
+    full_name: str
+    role: str
+    pin: Optional[str] = "0000"
+
+class ProfileToggle(BaseModel):
+    is_active: bool
 class CategoryBase(BaseModel):
     name: str
     display_order: Optional[int] = 0
@@ -44,6 +52,7 @@ class MenuItemCreate(MenuItemBase):
 
 class MenuItem(MenuItemBase):
     id: str
+    category_name: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -58,6 +67,7 @@ class TableCreate(TableBase):
 
 class Table(TableBase):
     id: str
+    current_order: Optional['Order'] = None
     class Config:
         from_attributes = True
 
@@ -75,6 +85,8 @@ class OrderItem(OrderItemBase):
     id: str
     order_id: str
     is_cooked: bool
+    name: Optional[str] = None
+    production_area: Optional[str] = None
     class Config:
         from_attributes = True
 
@@ -95,5 +107,13 @@ class Order(OrderBase):
     total: Decimal
     created_at: datetime
     items: List[OrderItem]
+    table_name: Optional[str] = None
+    waiter_name: Optional[str] = None
     class Config:
         from_attributes = True
+
+class OrderUpdate(BaseModel):
+    status: str
+
+class OrderItemToggle(BaseModel):
+    is_cooked: bool

@@ -58,19 +58,106 @@ def login(login_data: schemas.LoginRequest, db: Session = Depends(get_db)):
 
 @app.get("/api/menu", response_model=list[schemas.MenuItem])
 def get_menu(db: Session = Depends(get_db)):
-    return db.query(models.MenuItem).all()
+    items = db.query(models.MenuItem, models.Category.name.label("category_name")) \
+              .join(models.Category, models.MenuItem.category_id == models.Category.id) \
+              .all()
+    
+    result = []
+    for item, cat_name in items:
+        item_dict = schemas.MenuItem.from_orm(item)
+        item_dict.category_name = cat_name
+        result.append(item_dict)
+    return result
 
 @app.get("/api/categories", response_model=list[schemas.Category])
 def get_categories(db: Session = Depends(get_db)):
     return db.query(models.Category).all()
 
+# --- USER Management Endpoints ---
+
+@app.get("/api/users", response_model=list[schemas.Profile])
+def get_users(db: Session = Depends(get_db)):
+    return db.query(models.Profile).order_by(models.Profile.full_name).all()
+
+@app.post("/api/users", response_model=schemas.Profile, status_code=status.HTTP_201_CREATED)
+def create_user(payload: schemas.ProfileCreate, db: Session = Depends(get_db)):
+    if db.query(models.Profile).filter(models.Profile.pin == (payload.pin or "0000")).first():
+        raise HTTPException(status_code=400, detail="PIN already in use. Choose a unique PIN.")
+    try:
+        role_enum = models.UserRole(payload.role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {payload.role}")
+    user = models.Profile(
+        id=str(uuid.uuid4()),
+        full_name=payload.full_name,
+        role=role_enum,
+        pin=payload.pin or "0000",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+@app.patch("/api/users/{user_id}/toggle", response_model=schemas.Profile)
+def toggle_user(user_id: str, payload: schemas.ProfileToggle, db: Session = Depends(get_db)):
+    user = db.query(models.Profile).filter(models.Profile.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.is_active = payload.is_active
+    db.commit()
+    db.refresh(user)
+    return user
+
+def _enrich_order(db_order: models.Order, db: Session) -> schemas.Order:
+    """Hydrate an Order response with menu item names, production areas, table name and waiter name."""
+    order_schema = schemas.Order.from_orm(db_order)
+    # Build a lookup for menu items referenced by this order
+    item_ids = [oi.menu_item_id for oi in db_order.items]
+    if item_ids:
+        menu_lookup = {
+            mi.id: mi for mi in db.query(models.MenuItem).filter(models.MenuItem.id.in_(item_ids)).all()
+        }
+        for out_item in order_schema.items:
+            mi = menu_lookup.get(out_item.menu_item_id)
+            if mi:
+                out_item.name = mi.name
+                out_item.production_area = mi.production_area or "kitchen"
+    table = db.query(models.Table).filter(models.Table.id == db_order.table_id).first()
+    if table:
+        order_schema.table_name = table.name
+    waiter = db.query(models.Profile).filter(models.Profile.id == db_order.waiter_id).first()
+    if waiter:
+        order_schema.waiter_name = waiter.full_name
+    return order_schema
+
 @app.get("/api/orders", response_model=list[schemas.Order])
 def get_orders(db: Session = Depends(get_db)):
-    return db.query(models.Order).options(joinedload(models.Order.items)).all()
+    orders = db.query(models.Order).options(joinedload(models.Order.items)).all()
+    return [_enrich_order(o, db) for o in orders]
+
+@app.get("/api/orders/by-waiter/{waiter_id}", response_model=list[schemas.Order])
+def get_orders_by_waiter(waiter_id: str, db: Session = Depends(get_db)):
+    orders = db.query(models.Order).options(joinedload(models.Order.items)) \
+              .filter(models.Order.waiter_id == waiter_id) \
+              .order_by(models.Order.created_at.desc()).all()
+    return [_enrich_order(o, db) for o in orders]
 
 @app.get("/api/tables", response_model=list[schemas.Table])
 def get_tables(db: Session = Depends(get_db)):
-    return db.query(models.Table).all()
+    tables = db.query(models.Table).all()
+    result = []
+    for table in tables:
+        # Fetch the most recent non-paid order for this table
+        current_order = db.query(models.Order) \
+            .filter(models.Order.table_id == table.id, models.Order.status != "paid") \
+            .order_by(models.Order.created_at.desc()) \
+            .first()
+        
+        table_schema = schemas.Table.from_orm(table)
+        table_schema.current_order = current_order
+        result.append(table_schema)
+    return result
 
 # --- POST Endpoints ---
 
@@ -99,20 +186,45 @@ def create_table(table: schemas.TableCreate, db: Session = Depends(get_db)):
     return db_table
 
 @app.patch("/api/orders/{order_id}/status", response_model=schemas.Order)
-async def update_order_status(order_id: str, status: str, db: Session = Depends(get_db)):
+async def update_order_status(order_id: str, status_data: schemas.OrderUpdate, db: Session = Depends(get_db)):
     db_order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
     
-    db_order.status = status
+    db_order.status = status_data.status
+    
+    # If order is paid, set table to available
+    if status_data.status == "paid":
+        db_table = db.query(models.Table).filter(models.Table.id == db_order.table_id).first()
+        if db_table:
+            db_table.status = "available"
+            
     db.commit()
     db.refresh(db_order)
 
-    # Broadcast update
-    order_data = schemas.Order.from_orm(db_order).model_dump_json()
-    await manager.broadcast(order_data)
-    
-    return db_order
+    # Broadcast update to all clients (KDS, Floor Plan, etc.)
+    enriched = _enrich_order(db_order, db)
+    await manager.broadcast(enriched.model_dump_json())
+
+    return enriched
+
+@app.patch("/api/orders/items/{item_id}/toggle", response_model=schemas.OrderItem)
+async def toggle_item_cooked(item_id: str, data: schemas.OrderItemToggle, db: Session = Depends(get_db)):
+    db_item = db.query(models.OrderItem).filter(models.OrderItem.id == item_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    db_item.is_cooked = data.is_cooked
+    db.commit()
+    db.refresh(db_item)
+
+    # Broadcast the parent order so KDS updates
+    db_order = db.query(models.Order).filter(models.Order.id == db_item.order_id).first()
+    if db_order:
+        enriched = _enrich_order(db_order, db)
+        await manager.broadcast(enriched.model_dump_json())
+
+    return db_item
 
 @app.post("/api/orders", response_model=schemas.Order, status_code=status.HTTP_201_CREATED)
 def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
@@ -152,11 +264,11 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     db.refresh(db_order)
 
     # 5. Broadcast to KDS via WebSocket
-    order_data = schemas.Order.from_orm(db_order).model_dump_json()
+    enriched = _enrich_order(db_order, db)
     import asyncio
-    asyncio.create_task(manager.broadcast(order_data))
+    asyncio.create_task(manager.broadcast(enriched.model_dump_json()))
 
-    return db_order
+    return enriched
 
 @app.websocket("/ws/kds")
 async def websocket_endpoint(websocket: WebSocket):
