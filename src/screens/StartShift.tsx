@@ -23,15 +23,14 @@ const StartShift: React.FC<StartShiftProps> = ({ onConfirm }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-bg p-6">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-12">
-          <h1 className="text-3xl font-bold text-primary mb-2">Start Shift</h1>
-          <p className="text-text-secondary">Enter the opening float amount</p>
+    <div className="flex flex-col items-center justify-start h-screen bg-bg p-4 pt-8 overflow-hidden">
+      <div className="w-full max-w-sm flex flex-col items-center">
+        <div className="text-center mb-4">
+          <h1 className="text-xl font-black text-primary uppercase tracking-tighter">Opening Float</h1>
         </div>
 
-        <div className="bg-surface border border-border rounded-card p-6 mb-12 text-center shadow-sm">
-          <div className="text-4xl font-mono font-bold text-primary">
+        <div className="w-full bg-surface border-2 border-border rounded-xl p-3 mb-4 text-center shadow-sm">
+          <div className="text-2xl font-mono font-black text-primary">
             {formatCurrency(float)}
           </div>
         </div>
@@ -39,15 +38,15 @@ const StartShift: React.FC<StartShiftProps> = ({ onConfirm }) => {
         <Numpad 
           onKeyPress={handleKeyPress} 
           onDelete={handleDelete}
-          className="mb-12"
+          className="mb-4 w-full scale-95"
         />
 
         <button 
-          className="w-full btn-primary h-16 text-xl"
+          className="w-full h-12 bg-primary text-white text-base font-black uppercase tracking-widest rounded-xl shadow-lg shadow-primary/20 hover:bg-primary-light transition-all active:scale-95 disabled:opacity-50"
           disabled={!float || float === '0'}
           onClick={onConfirm}
         >
-          Confirm & Open Shift
+          Confirm & Open
         </button>
       </div>
     </div>

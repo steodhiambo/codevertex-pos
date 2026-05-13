@@ -45,55 +45,46 @@ const PinLogin: React.FC<PinLoginProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-bg p-6">
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-primary mb-2">Codevertex</h1>
-          <p className="text-text-secondary">Enter your PIN to continue</p>
+    <div className="flex flex-col items-center justify-start h-screen bg-bg p-4 pt-8 overflow-hidden">
+      <div className="w-full max-w-sm flex flex-col items-center">
+        {/* Extreme Concise Header */}
+        <div className="text-center mb-4">
+          <h1 className="text-2xl font-black text-primary tracking-tighter uppercase">Codevertex</h1>
         </div>
 
+        {/* Compact PIN Indicator */}
         <motion.div 
           animate={controls}
-          className="flex justify-center gap-6 mb-12"
+          className="flex justify-center gap-3 mb-6"
         >
           {[...Array(PIN_LENGTH)].map((_, i) => (
             <motion.div
               key={i}
               initial={false}
               animate={{
-                scale: i < pin.length ? [1, 1.2, 1] : 1,
+                scale: i < pin.length ? [1, 1.1, 1] : 1,
                 backgroundColor: i < pin.length ? '#6B2D8B' : 'transparent',
                 borderColor: i < pin.length ? '#6B2D8B' : '#8B4DAB'
               }}
-              className={`w-6 h-6 rounded-full border-2 transition-colors`}
+              className={`w-3 h-3 rounded-full border-2 transition-colors`}
             />
           ))}
         </motion.div>
 
+        {/* Numpad with reduced spacing */}
         <Numpad 
           onKeyPress={handleKeyPress} 
           onDelete={handleDelete}
-          className="mb-12"
+          className="mb-4 w-full scale-95"
         />
 
         <div className="text-center">
-          <button className="text-primary font-semibold hover:underline">
-            Forgot PIN?
+          <button 
+            onClick={() => alert('Please contact your manager to reset your PIN.')}
+            className="text-[10px] text-primary font-bold hover:underline uppercase tracking-tighter opacity-80"
+          >
+            Trouble logging in?
           </button>
-        </div>
-      </div>
-
-      {/* Active Shifts Avatar Pills */}
-      <div className="absolute bottom-8 flex gap-2">
-        <div className="flex items-center gap-2 px-3 py-1 bg-surface rounded-full border border-border shadow-sm">
-          <div className="w-6 h-6 rounded-full bg-primary-pale text-primary flex items-center justify-center text-xs font-bold">JD</div>
-          <span className="text-xs font-medium text-text-primary">John Doe</span>
-          <div className="w-2 h-2 rounded-full bg-success"></div>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1 bg-surface rounded-full border border-border shadow-sm">
-          <div className="w-6 h-6 rounded-full bg-primary-pale text-primary flex items-center justify-center text-xs font-bold">SM</div>
-          <span className="text-xs font-medium text-text-primary">Sarah M.</span>
-          <div className="w-2 h-2 rounded-full bg-success"></div>
         </div>
       </div>
     </div>
