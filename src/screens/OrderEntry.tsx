@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Minus, Trash2, ChevronRight, Receipt, ArrowLeft, Loader2, CheckCircle2 } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, ChevronRight, Receipt, ArrowLeft, Loader2, CheckCircle2, MessageSquare, Utensils, Coffee } from 'lucide-react';
 import { menuApi, orderApi } from '../lib/api';
+import VoidItemModal from '../components/VoidItemModal';
 
-// Removed simple generator, using crypto.randomUUID() for real UUIDs
+type Destination = 'kitchen' | 'bar';
 
 interface MenuItem {
   id: string;
   name: string;
   price: number;
   category_id?: string;
-  category?: string;
+  category_name?: string;
+  production_area?: Destination;
   image?: string;
 }
 
@@ -18,13 +20,21 @@ interface CartItem extends MenuItem {
   note?: string;
 }
 
+const BAR_CATEGORIES = new Set(['Drinks', 'Cocktails', 'Beverages', 'Hot Drinks']);
+const destinationOf = (item: MenuItem): Destination => {
+  if (item.production_area) return item.production_area;
+  if (item.category_name && BAR_CATEGORIES.has(item.category_name)) return 'bar';
+  return 'kitchen';
+};
+
 interface OrderEntryProps {
   context: { tableId: string; tableName: string; guestCount: number } | null;
   waiterId: string;
   onBack: () => void;
+  onOrderPlaced?: () => void;
 }
 
-const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) => {
+const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack, onOrderPlaced }) => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<string[]>(['All']);
   const [loading, setLoading] = useState(true);
@@ -33,6 +43,7 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
   const [searchQuery, setSearchQuery] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [voidingItem, setVoidingItem] = useState<CartItem | null>(null);
 
   useEffect(() => {
     const fetchMenuData = async () => {
@@ -54,7 +65,7 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
   }, []);
 
   const filteredMenu = menuItems.filter(item => 
-    (selectedCategory === 'All' || item.category === selectedCategory) &&
+    (selectedCategory === 'All' || item.category_name === selectedCategory) &&
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -78,13 +89,32 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
     }));
   };
 
-  const removeFromCart = (id: string) => {
-    setCart(prev => prev.filter(i => i.id !== id));
+  const updateNote = (id: string, note: string) => {
+    setCart(prev => prev.map(i => i.id === id ? { ...i, note } : i));
   };
 
-  const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const requestRemove = (item: CartItem) => {
+    setVoidingItem(item);
+  };
+
+  const confirmRemove = (_reason: string) => {
+    if (voidingItem) {
+      setCart(prev => prev.filter(i => i.id !== voidingItem.id));
+    }
+    setVoidingItem(null);
+  };
+
+  const clearCart = () => {
+    if (window.confirm('Are you sure you want to clear the cart?')) {
+      setCart([]);
+    }
+  };
+
+  const total = cart.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
 
   const handleSendToKitchen = async () => {
+    if (cart.length === 0) return;
+    
     setIsSending(true);
     try {
       const orderData = {
@@ -96,7 +126,7 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
           menu_item_id: item.id,
           quantity: item.quantity,
           unit_price: item.price,
-          notes: item.note
+          notes: item.note || ""
         }))
       };
 
@@ -105,7 +135,8 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
       setTimeout(() => {
         setCart([]);
         setIsSuccess(false);
-        onBack();
+        if (onOrderPlaced) onOrderPlaced();
+        else onBack();
       }, 2000);
     } catch (error) {
       console.error('Failed to send order:', error);
@@ -137,8 +168,8 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
   }
 
   return (
-    <div className="flex h-full gap-4 overflow-hidden -m-6"> {/* Negative margin to use full layout space */}
-      {/* Left Side: Category Rail - Fixed Width */}
+    <div className="flex h-full gap-4 overflow-hidden -m-6">
+      {/* Left Side: Category Rail */}
       <div className="w-28 flex flex-col bg-surface border-r border-border overflow-y-auto shrink-0 py-4 px-2 gap-3">
         {categories.map(cat => (
           <button
@@ -159,9 +190,8 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
         ))}
       </div>
 
-      {/* Center: Menu Selection - Flexible */}
+      {/* Center: Menu Selection */}
       <div className="flex-1 flex flex-col min-w-0 py-6 pr-2">
-        {/* Search Header */}
         <div className="flex gap-4 mb-6">
           <button 
             onClick={onBack}
@@ -181,44 +211,66 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
           </div>
         </div>
 
-        {/* Menu Grid - Improved Spacing */}
         <div className="flex-1 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-6">
-          {filteredMenu.map(item => (
-            <button
-              key={item.id}
-              onClick={() => addToCart(item)}
-              className="card flex flex-col p-5 text-left hover:border-primary hover:shadow-xl transition-all active:scale-95 border-2 group bg-surface min-h-[220px]"
-            >
-              <div className="w-full h-32 rounded-xl bg-primary-pale mb-4 flex items-center justify-center text-primary font-black text-4xl group-hover:scale-105 transition-transform shrink-0">
-                {item.name.charAt(0)}
-              </div>
-              <div className="flex flex-col flex-1">
-                <h3 className="font-black text-text-primary mb-2 line-clamp-2 text-base leading-tight uppercase tracking-tight">{item.name}</h3>
-                <div className="mt-auto flex justify-between items-center">
-                  <span className="text-primary font-black text-lg font-mono">KES {item.price.toLocaleString()}</span>
-                  <div className="p-2 bg-primary/10 text-primary rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Plus size={20} />
+          {filteredMenu.map(item => {
+            const dest = destinationOf(item);
+            const inCart = cart.find(c => c.id === item.id);
+            return (
+              <button
+                key={item.id}
+                onClick={() => addToCart(item)}
+                className="card flex flex-col p-5 text-left hover:border-primary hover:shadow-xl transition-all active:scale-95 border-2 group bg-surface min-h-[220px] relative"
+              >
+                {/* Destination badge */}
+                <div className={`absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-tighter ${
+                  dest === 'bar' ? 'bg-info/10 text-info' : 'bg-warning/10 text-warning'
+                }`}>
+                  {dest === 'bar' ? <Coffee size={10} /> : <Utensils size={10} />}
+                  {dest}
+                </div>
+                {/* Cart badge */}
+                {inCart && (
+                  <div className="absolute top-3 left-3 w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center font-black text-xs font-mono shadow-lg">
+                    {inCart.quantity}
+                  </div>
+                )}
+                <div className="w-full h-32 rounded-xl bg-primary-pale mb-4 flex items-center justify-center text-primary font-black text-4xl group-hover:scale-105 transition-transform shrink-0">
+                  {item.name.charAt(0)}
+                </div>
+                <div className="flex flex-col flex-1">
+                  <h3 className="font-black text-text-primary mb-2 line-clamp-2 text-base leading-tight uppercase tracking-tight">{item.name}</h3>
+                  <div className="mt-auto flex justify-between items-center">
+                    <span className="text-primary font-black text-lg font-mono">KES {Number(item.price).toLocaleString()}</span>
+                    <div className="p-2 bg-primary/10 text-primary rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Plus size={20} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </button>
-          ))}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Right Side: Cart Panel - Fixed Width */}
-      <div className="w-[400px] flex flex-col bg-surface border-l border-border shadow-2xl shrink-0">
-        <div className="p-6 border-b border-border bg-bg/30">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xl font-black text-text-primary flex items-center gap-2 uppercase tracking-tighter">
-              <Receipt size={24} className="text-primary" />
-              Cart
-            </h2>
-            <span className="px-3 py-1 rounded-full bg-primary text-white text-xs font-black">
-              #NEW
-            </span>
+      {/* Right Side: Cart Panel */}
+      <div className="w-[450px] flex flex-col bg-surface border-l border-border shadow-2xl shrink-0">
+        <div className="p-6 border-b border-border bg-bg/30 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-xl font-black text-text-primary flex items-center gap-2 uppercase tracking-tighter">
+                <Receipt size={24} className="text-primary" />
+                Cart
+              </h2>
+            </div>
+            <p className="text-sm text-text-secondary font-bold">Table {context?.tableName || 'T1'} · {context?.guestCount || 2} Guests</p>
           </div>
-          <p className="text-sm text-text-secondary font-bold">Table {context?.tableName || 'T1'} · {context?.guestCount || 2} Guests</p>
+          <button 
+            onClick={clearCart}
+            className="p-2 text-text-secondary hover:text-error transition-colors"
+            title="Clear Cart"
+          >
+            <Trash2 size={20} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -230,38 +282,66 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
               <p className="text-text-secondary font-black uppercase tracking-widest text-xs">Empty Cart</p>
             </div>
           ) : (
-            cart.map(item => (
-              <div key={item.id} className="flex gap-4 items-center animate-in slide-in-from-right-4 duration-200">
-                <div className="w-12 h-12 rounded-xl bg-primary-pale flex items-center justify-center font-black text-primary shrink-0">
-                  {item.name.charAt(0)}
+            (['kitchen', 'bar'] as Destination[]).map(dest => {
+              const groupItems = cart.filter(c => destinationOf(c) === dest);
+              if (groupItems.length === 0) return null;
+              return (
+                <div key={dest} className="space-y-2">
+                  <div className={`flex items-center gap-2 px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest ${
+                    dest === 'bar' ? 'bg-info/10 text-info' : 'bg-warning/10 text-warning'
+                  }`}>
+                    {dest === 'bar' ? <Coffee size={12} /> : <Utensils size={12} />}
+                    {dest === 'bar' ? 'Bar' : 'Kitchen'} · {groupItems.length} item{groupItems.length > 1 ? 's' : ''}
+                  </div>
+                  {groupItems.map(item => (
+                    <div key={item.id} className="flex flex-col gap-2 p-3 bg-bg rounded-2xl border border-border animate-in slide-in-from-right-4 duration-200">
+                      <div className="flex gap-3 items-center">
+                        <div className="w-10 h-10 rounded-lg bg-primary-pale flex items-center justify-center font-black text-primary shrink-0">
+                          {item.name.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-black text-sm text-text-primary uppercase truncate tracking-tight">{item.name}</h4>
+                          <p className="text-xs text-primary font-bold font-mono">KES {Number(item.price).toLocaleString()}</p>
+                        </div>
+                        <div className="flex items-center gap-2 bg-surface p-1 rounded-lg border border-border">
+                          <button
+                            onClick={() => updateQuantity(item.id, -1)}
+                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-white hover:text-primary transition-all active:scale-90"
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <span className="w-6 text-center text-xs font-black font-mono">{item.quantity}</span>
+                          <button
+                            onClick={() => updateQuantity(item.id, 1)}
+                            className="w-6 h-6 flex items-center justify-center rounded hover:bg-white hover:text-primary transition-all active:scale-90"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => requestRemove(item)}
+                          className="p-1.5 text-text-secondary hover:text-error transition-all active:scale-90"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+
+                      {/* Note Field */}
+                      <div className="flex items-center gap-2 px-2 py-1 bg-surface/50 rounded-lg border border-dashed border-border group">
+                        <MessageSquare size={14} className="text-text-secondary" />
+                        <input
+                          type="text"
+                          placeholder="Add special instructions..."
+                          value={item.note || ''}
+                          onChange={(e) => updateNote(item.id, e.target.value)}
+                          className="flex-1 bg-transparent text-[10px] font-bold focus:outline-none placeholder:text-text-secondary/50"
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-black text-sm text-text-primary uppercase truncate tracking-tight">{item.name}</h4>
-                  <p className="text-xs text-primary font-bold font-mono">KES {item.price.toLocaleString()}</p>
-                </div>
-                <div className="flex items-center gap-2 bg-bg p-1 rounded-xl border border-border">
-                  <button 
-                    onClick={() => updateQuantity(item.id, -1)}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:text-primary transition-all active:scale-90"
-                  >
-                    <Minus size={16} />
-                  </button>
-                  <span className="w-8 text-center text-sm font-black font-mono">{item.quantity}</span>
-                  <button 
-                    onClick={() => updateQuantity(item.id, 1)}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white hover:text-primary transition-all active:scale-90"
-                  >
-                    <Plus size={16} />
-                  </button>
-                </div>
-                <button 
-                  onClick={() => removeFromCart(item.id)}
-                  className="p-2 text-text-secondary hover:text-error transition-all active:scale-90"
-                >
-                  <Trash2 size={20} />
-                </button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -300,6 +380,13 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack }) =>
           </button>
         </div>
       </div>
+
+      <VoidItemModal
+        isOpen={voidingItem !== null}
+        onClose={() => setVoidingItem(null)}
+        onConfirm={confirmRemove}
+        itemName={voidingItem?.name || ''}
+      />
     </div>
   );
 };

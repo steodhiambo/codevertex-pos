@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Receipt, Loader2 } from 'lucide-react';
+import { Users, Receipt, Loader2, RefreshCcw } from 'lucide-react';
 import GuestCountModal from '../components/GuestCountModal';
-import { tableApi } from '../lib/api';
+import { tableApi, getWsUrl } from '../lib/api';
 
 interface Table {
   id: string;
@@ -9,11 +9,28 @@ interface Table {
   seats: number;
   status: 'available' | 'occupied';
   zone?: string;
+  current_order?: {
+    id: string;
+    total: number;
+    status: string;
+  };
 }
 
 interface FloorPlanProps {
   onTableSelect: (tableId: string, tableName: string, guestCount: number) => void;
 }
+
+// Derive zone from table name prefix: T1-T6 = Indoor, T7-T9 = Outdoor, V = VIP, B = Bar
+const deriveZone = (name: string): 'Indoor' | 'Outdoor' | 'VIP' | 'Bar' => {
+  if (name.startsWith('V')) return 'VIP';
+  if (name.startsWith('B')) return 'Bar';
+  if (name.startsWith('T')) {
+    const num = parseInt(name.slice(1), 10);
+    if (!isNaN(num) && num >= 7) return 'Outdoor';
+    return 'Indoor';
+  }
+  return 'Indoor';
+};
 
 const FloorPlan: React.FC<FloorPlanProps> = ({ onTableSelect }) => {
   const [tables, setTables] = useState<Table[]>([]);
@@ -22,20 +39,31 @@ const FloorPlan: React.FC<FloorPlanProps> = ({ onTableSelect }) => {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [isGuestModalOpen, setIsGuestModalOpen] = useState(false);
 
-  const zones = ['All', 'Main Hall', 'Terrace', 'VIP'];
+  const zones = ['All', 'Indoor', 'Outdoor', 'VIP', 'Bar'];
+
+  const fetchTables = async () => {
+    try {
+      const data = await tableApi.getAll();
+      const enriched = data.map((t: Table) => ({ ...t, zone: t.zone || deriveZone(t.name) }));
+      setTables(enriched);
+    } catch (error) {
+      console.error('Failed to fetch tables:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchTables = async () => {
-      try {
-        const data = await tableApi.getAll();
-        setTables(data);
-      } catch (error) {
-        console.error('Failed to fetch tables:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchTables();
+
+    // Listen for order updates to refresh table status
+    const ws = new WebSocket(getWsUrl('/kds'));
+    ws.onmessage = (event) => {
+      // Any order update (new order, status change) might affect floor plan
+      fetchTables();
+    };
+
+    return () => ws.close();
   }, []);
 
   const filteredTables = selectedZone === 'All' 
@@ -47,12 +75,12 @@ const FloorPlan: React.FC<FloorPlanProps> = ({ onTableSelect }) => {
       setSelectedTable(table);
       setIsGuestModalOpen(true);
     } else {
+      // For occupied tables, we go to order entry with existing context
       onTableSelect(table.id, table.name, 1);
     }
   };
 
   const handleGuestConfirm = (count: number) => {
-    console.log(`Starting order for ${selectedTable?.name} with ${count} guests`);
     setIsGuestModalOpen(false);
     if (selectedTable) {
       onTableSelect(selectedTable.id, selectedTable.name, count);
@@ -70,21 +98,30 @@ const FloorPlan: React.FC<FloorPlanProps> = ({ onTableSelect }) => {
 
   return (
     <div className="space-y-6">
-      {/* Zone Filters */}
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {zones.map(zone => (
-          <button
-            key={zone}
-            onClick={() => setSelectedZone(zone)}
-            className={`px-6 py-2 rounded-full whitespace-nowrap transition-colors font-medium border ${
-              selectedZone === zone 
-                ? 'bg-primary text-white border-primary' 
-                : 'bg-surface text-text-secondary border-border hover:border-primary-light'
-            }`}
-          >
-            {zone}
-          </button>
-        ))}
+      {/* Zone Filters & Refresh */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2 overflow-x-auto pb-2">
+          {zones.map(zone => (
+            <button
+              key={zone}
+              onClick={() => setSelectedZone(zone)}
+              className={`px-6 py-2 rounded-full whitespace-nowrap transition-colors font-medium border ${
+                selectedZone === zone 
+                  ? 'bg-primary text-white border-primary' 
+                  : 'bg-surface text-text-secondary border-border hover:border-primary-light'
+              }`}
+            >
+              {zone}
+            </button>
+          ))}
+        </div>
+        <button 
+          onClick={fetchTables}
+          className="p-2 text-text-secondary hover:text-primary transition-colors"
+          title="Refresh Floor Plan"
+        >
+          <RefreshCcw size={20} />
+        </button>
       </div>
 
       {/* Table Grid */}
@@ -119,14 +156,14 @@ const FloorPlan: React.FC<FloorPlanProps> = ({ onTableSelect }) => {
               <span className="text-xs font-bold">{table.seats}</span>
             </div>
 
-            {table.status === 'occupied' && table.currentOrder ? (
+            {table.status === 'occupied' && table.current_order ? (
               <div className="w-full mt-auto p-3 bg-white/80 rounded-xl border border-info/20 flex flex-col items-center shadow-sm">
                 <div className="flex items-center gap-1 text-[10px] font-black text-info mb-1 uppercase tracking-tight">
                   <Receipt size={10} />
-                  {table.currentOrder.orderNumber}
+                  {table.current_order.status}
                 </div>
                 <div className="text-lg font-black text-text-primary font-mono">
-                  KES {table.currentOrder.total.toLocaleString()}
+                  KES {Number(table.current_order.total).toLocaleString()}
                 </div>
               </div>
             ) : (
