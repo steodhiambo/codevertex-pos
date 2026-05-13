@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { X, Smartphone, Banknote, CreditCard, Bed, CheckCircle2, Loader2 } from 'lucide-react';
+import { orderApi } from '../lib/api';
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   bill: {
-    table: string;
+    id: string;
+    table_id: string;
     total: number;
-    orderNumber: string;
   };
 }
 
@@ -19,16 +20,25 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
   const [isSuccess, setIsSuccess] = useState(false);
   const [phone, setPhone] = useState('');
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     setIsProcessing(true);
-    // Simulate payment process
-    setTimeout(() => {
+    try {
+      // 1. Process payment (Mocking the external payment gateway response)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // 2. Update order status in backend
+      await orderApi.updateStatus(bill.id, 'paid');
+      
       setIsProcessing(false);
       setIsSuccess(true);
       setTimeout(() => {
         onSuccess();
       }, 2000);
-    }, 3000);
+    } catch (error) {
+      console.error('Payment failed:', error);
+      alert('Payment failed. Please try again.');
+      setIsProcessing(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -42,7 +52,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
             <CheckCircle2 size={48} />
           </div>
           <h2 className="text-3xl font-bold text-text-primary mb-2">Payment Successful</h2>
-          <p className="text-text-secondary">Receipt printed for {bill.orderNumber}</p>
+          <p className="text-text-secondary">Receipt printed for Order #{bill.id.slice(0, 4)}</p>
         </div>
       </div>
     );
@@ -57,7 +67,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
         <div className="p-6 border-b border-border flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-text-primary">Settle Bill</h2>
-            <p className="text-text-secondary">Table {bill.table} · {bill.orderNumber}</p>
+            <p className="text-text-secondary">Table {bill.table_id} · Order #{bill.id.slice(0, 4)}</p>
           </div>
           <button onClick={onClose} className="p-2 text-text-secondary hover:bg-bg rounded-full">
             <X size={24} />
@@ -84,7 +94,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
         <div className="flex-1 overflow-y-auto p-8">
           <div className="text-center mb-10">
             <p className="text-text-secondary mb-1">Total Amount Due</p>
-            <h1 className="text-5xl font-bold text-primary font-mono">KES {bill.total.toLocaleString()}</h1>
+            <h1 className="text-5xl font-bold text-primary font-mono">KES {Number(bill.total).toLocaleString()}</h1>
           </div>
 
           <div className="space-y-6">
@@ -139,7 +149,7 @@ const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess,
                 Processing...
               </>
             ) : (
-              `Confirm Payment KES ${bill.total.toLocaleString()}`
+              `Confirm Payment KES ${Number(bill.total).toLocaleString()}`
             )}
           </button>
         </div>

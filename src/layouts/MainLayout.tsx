@@ -1,18 +1,19 @@
 import React, { useState } from 'react';
-import { 
-  LayoutDashboard, 
-  Grid, 
-  Utensils, 
-  Coffee, 
-  Receipt, 
-  Bed, 
-  Package, 
-  Users, 
+import {
+  LayoutDashboard,
+  Grid,
+  Utensils,
+  Coffee,
+  Receipt,
+  Bed,
+  Package,
+  Users,
   Bell,
   LogOut,
   Menu,
   X,
-  History
+  History,
+  Waves
 } from 'lucide-react';
 import NotificationDrawer from '../components/NotificationDrawer';
 
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { id: 'bar', label: 'Bar', icon: <Coffee size={24} />, roles: ['Bar', 'Manager', 'Admin'] },
   { id: 'bills', label: 'Bills', icon: <Receipt size={24} />, roles: ['Cashier', 'Manager', 'Admin'] },
   { id: 'rooms', label: 'Rooms', icon: <Bed size={24} />, roles: ['Receptionist', 'Manager', 'Admin'] },
+  { id: 'facilities', label: 'Facilities', icon: <Waves size={24} />, roles: ['Receptionist', 'Admin'] },
   { id: 'stock', label: 'Stock', icon: <Package size={24} />, roles: ['Admin'] },
   { id: 'users', label: 'Users', icon: <Users size={24} />, roles: ['Admin'] },
 ];
@@ -40,12 +42,15 @@ const navItems: NavItem[] = [
 interface MainLayoutProps {
   children?: React.ReactNode;
   userRole: Role;
+  userName?: string;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onLogout: () => void;
 }
 
-const MainLayout: React.FC<MainLayoutProps> = ({ children, userRole, activeTab, setActiveTab, onLogout }) => {
+const MainLayout: React.FC<MainLayoutProps> = ({ children, userRole, userName, activeTab, setActiveTab, onLogout }) => {
+  const displayName = userName || userRole;
+  const initials = displayName.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
 
@@ -111,11 +116,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, userRole, activeTab, 
             </button>
             <div className="flex items-center gap-3 pl-4 border-l border-border">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold text-text-primary">John Doe</p>
+                <p className="text-sm font-bold text-text-primary">{displayName}</p>
                 <p className="text-xs text-text-secondary">{userRole}</p>
               </div>
               <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold">
-                JD
+                {initials}
               </div>
             </div>
           </div>
