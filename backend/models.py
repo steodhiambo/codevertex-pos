@@ -67,3 +67,13 @@ class OrderItem(Base):
     notes = Column(String)
     is_cooked = Column(Boolean, default=False)
     order = relationship("Order", back_populates="items")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(String, primary_key=True)
+    waiter_id = Column(String, ForeignKey("profiles.id"), index=True)
+    order_id = Column(String, ForeignKey("orders.id"))
+    source = Column(String)  # "Kitchen" | "Bar"
+    message = Column(String, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)

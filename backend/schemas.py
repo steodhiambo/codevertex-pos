@@ -117,3 +117,21 @@ class OrderUpdate(BaseModel):
 
 class OrderItemToggle(BaseModel):
     is_cooked: bool
+class OrderAddItems(BaseModel):
+    items: List[OrderItemCreate]
+
+# Notification Schemas
+class NotificationBase(BaseModel):
+    waiter_id: str
+    order_id: str
+    source: str  # "Kitchen" | "Bar"
+    message: str
+    is_read: bool = False
+
+class Notification(NotificationBase):
+    id: str
+    created_at: datetime
+    order_number: Optional[str] = None
+    table_name: Optional[str] = None
+    class Config:
+        from_attributes = True

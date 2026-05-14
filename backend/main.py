@@ -7,6 +7,7 @@ import schemas
 from database import engine, get_db
 import uuid
 import json
+from decimal import Decimal
 
 # Create tables in PostgreSQL
 models.Base.metadata.create_all(bind=engine)
@@ -143,6 +144,20 @@ def get_orders_by_waiter(waiter_id: str, db: Session = Depends(get_db)):
               .order_by(models.Order.created_at.desc()).all()
     return [_enrich_order(o, db) for o in orders]
 
+@app.get("/api/orders/table/{table_id}", response_model=schemas.Order)
+def get_active_order_by_table(table_id: str, db: Session = Depends(get_db)):
+    """Fetch the most recent non-settled order for a given table (used when clicking an occupied table)."""
+    order = db.query(models.Order).options(joinedload(models.Order.items)) \
+              .filter(
+                  models.Order.table_id == table_id,
+                  models.Order.status.notin_(["paid", "voided"])
+              ) \
+              .order_by(models.Order.created_at.desc()) \
+              .first()
+    if not order:
+        raise HTTPException(status_code=404, detail="No active order found for this table")
+    return _enrich_order(order, db)
+
 @app.get("/api/tables", response_model=list[schemas.Table])
 def get_tables(db: Session = Depends(get_db)):
     tables = db.query(models.Table).all()
@@ -185,20 +200,56 @@ def create_table(table: schemas.TableCreate, db: Session = Depends(get_db)):
     db.refresh(db_table)
     return db_table
 
+def _enrich_notification(db_notif: models.Notification, db: Session) -> schemas.Notification:
+    notif_schema = schemas.Notification.from_orm(db_notif)
+    notif_schema.order_number = (db_notif.order_id or "")[:4].upper()
+    order = db.query(models.Order).filter(models.Order.id == db_notif.order_id).first()
+    if order:
+        table = db.query(models.Table).filter(models.Table.id == order.table_id).first()
+        if table:
+            notif_schema.table_name = table.name
+    return notif_schema
+
+def _create_ready_notification(db_order: models.Order, db: Session) -> schemas.Notification:
+    """Create + persist a notification when an order transitions to 'ready'.
+
+    Source is derived from the production area of the order's items: any kitchen
+    item → 'Kitchen', otherwise 'Bar'.
+    """
+    item_ids = [oi.menu_item_id for oi in db_order.items]
+    source = "Kitchen"
+    if item_ids:
+        menu = db.query(models.MenuItem).filter(models.MenuItem.id.in_(item_ids)).all()
+        areas = {(mi.production_area or "kitchen").lower() for mi in menu}
+        source = "Bar" if areas == {"bar"} else "Kitchen"
+    notif = models.Notification(
+        id=str(uuid.uuid4()),
+        waiter_id=db_order.waiter_id,
+        order_id=db_order.id,
+        source=source,
+        message="Order is READY" if source == "Kitchen" else "Drinks are READY",
+        is_read=False,
+    )
+    db.add(notif)
+    db.commit()
+    db.refresh(notif)
+    return _enrich_notification(notif, db)
+
 @app.patch("/api/orders/{order_id}/status", response_model=schemas.Order)
 async def update_order_status(order_id: str, status_data: schemas.OrderUpdate, db: Session = Depends(get_db)):
     db_order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
-    
+
+    previous_status = db_order.status
     db_order.status = status_data.status
-    
+
     # If order is paid, set table to available
     if status_data.status == "paid":
         db_table = db.query(models.Table).filter(models.Table.id == db_order.table_id).first()
         if db_table:
             db_table.status = "available"
-            
+
     db.commit()
     db.refresh(db_order)
 
@@ -206,6 +257,47 @@ async def update_order_status(order_id: str, status_data: schemas.OrderUpdate, d
     enriched = _enrich_order(db_order, db)
     await manager.broadcast(enriched.model_dump_json())
 
+    # Emit a notification when an order transitions into 'ready'
+    if status_data.status == "ready" and previous_status != "ready" and db_order.waiter_id:
+        notif_schema = _create_ready_notification(db_order, db)
+        await manager.broadcast(json.dumps({
+            "type": "notification",
+            "data": json.loads(notif_schema.model_dump_json()),
+        }))
+
+    return enriched
+
+@app.patch("/api/orders/{order_id}/items", response_model=schemas.Order)
+async def add_items_to_order(order_id: str, data: schemas.OrderAddItems, db: Session = Depends(get_db)):
+    db_order = db.query(models.Order).filter(models.Order.id == order_id).first()
+    if not db_order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Add new items
+    for item in data.items:
+        db_item = models.OrderItem(
+            id=str(uuid.uuid4()),
+            order_id=order_id,
+            **item.model_dump()
+        )
+        db.add(db_item)
+    
+    db.commit()
+    db.refresh(db_order)
+    
+    # Recalculate totals
+    subtotal = sum(item.quantity * item.unit_price for item in db_order.items)
+    db_order.subtotal = subtotal
+    db_order.tax = subtotal * Decimal("0.16") # 16% VAT
+    db_order.total = db_order.subtotal + db_order.tax
+    
+    db.commit()
+    db.refresh(db_order)
+    
+    # Broadcast to KDS via WebSocket
+    enriched = _enrich_order(db_order, db)
+    await manager.broadcast(enriched.model_dump_json())
+    
     return enriched
 
 @app.patch("/api/orders/items/{item_id}/toggle", response_model=schemas.OrderItem)
@@ -269,6 +361,42 @@ def create_order(order: schemas.OrderCreate, db: Session = Depends(get_db)):
     asyncio.create_task(manager.broadcast(enriched.model_dump_json()))
 
     return enriched
+
+# --- NOTIFICATION Endpoints ---
+
+@app.get("/api/notifications", response_model=list[schemas.Notification])
+def list_notifications(waiter_id: str, db: Session = Depends(get_db)):
+    rows = db.query(models.Notification) \
+        .filter(models.Notification.waiter_id == waiter_id) \
+        .order_by(models.Notification.created_at.desc()) \
+        .limit(50).all()
+    return [_enrich_notification(n, db) for n in rows]
+
+@app.post("/api/notifications/{notif_id}/read", response_model=schemas.Notification)
+def mark_notification_read(notif_id: str, db: Session = Depends(get_db)):
+    notif = db.query(models.Notification).filter(models.Notification.id == notif_id).first()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    notif.is_read = True
+    db.commit()
+    db.refresh(notif)
+    return _enrich_notification(notif, db)
+
+@app.post("/api/notifications/mark-all-read")
+def mark_all_notifications_read(waiter_id: str, db: Session = Depends(get_db)):
+    db.query(models.Notification) \
+        .filter(models.Notification.waiter_id == waiter_id, models.Notification.is_read == False) \
+        .update({"is_read": True}, synchronize_session=False)
+    db.commit()
+    return {"ok": True}
+
+@app.delete("/api/notifications")
+def clear_notifications(waiter_id: str, db: Session = Depends(get_db)):
+    db.query(models.Notification) \
+        .filter(models.Notification.waiter_id == waiter_id) \
+        .delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True}
 
 @app.websocket("/ws/kds")
 async def websocket_endpoint(websocket: WebSocket):
