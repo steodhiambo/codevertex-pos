@@ -40,6 +40,10 @@ export const orderApi = {
     method: 'POST',
     body: JSON.stringify(orderData),
   }),
+  addItems: (orderId: string, items: any[]) => apiFetch(`/orders/${orderId}/items`, {
+    method: 'PATCH',
+    body: JSON.stringify({ items }),
+  }),
   getAll: () => apiFetch('/orders'),
   getByTable: (tableId: string) => apiFetch(`/orders/table/${tableId}`),
   getByWaiter: (waiterId: string) => apiFetch(`/orders/by-waiter/${waiterId}`),
@@ -63,6 +67,21 @@ export const userApi = {
     method: 'PATCH',
     body: JSON.stringify({ is_active }),
   }),
+};
+
+export const notificationApi = {
+  list: (waiterId: string) =>
+    apiFetch(`/notifications?waiter_id=${encodeURIComponent(waiterId)}`),
+  markRead: (id: string) =>
+    apiFetch(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllRead: (waiterId: string) =>
+    apiFetch(`/notifications/mark-all-read?waiter_id=${encodeURIComponent(waiterId)}`, {
+      method: 'POST',
+    }),
+  clear: (waiterId: string) =>
+    apiFetch(`/notifications?waiter_id=${encodeURIComponent(waiterId)}`, {
+      method: 'DELETE',
+    }),
 };
 
 export const getWsUrl = (endpoint: string) => `${WS_BASE_URL}${endpoint}`;
