@@ -3,21 +3,90 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --primary: 282 51% 36%;
+    --primary-foreground: 0 0% 100%;
+    --bg: 255 15% 97%;
+    --surface: 0 0% 100%;
+    --border: 255 15% 92%;
+    --ring: 282 51% 36%;
+  }
+
   body {
-    @apply bg-bg text-text-primary font-body antialiased;
+    @apply bg-bg text-text-primary font-body antialiased selection:bg-primary/20 selection:text-primary;
+    background-image: 
+      radial-gradient(at 0% 0%, hsla(282, 51%, 36%, 0.05) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, hsla(217, 91%, 60%, 0.05) 0px, transparent 50%);
+    background-attachment: fixed;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-heading font-bold leading-heading;
+    @apply font-heading font-bold leading-heading tracking-tight;
+  }
+
+  /* Custom Scrollbar */
+  ::-webkit-scrollbar {
+    @apply w-1.5 h-1.5;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full hover:bg-text-secondary/20 transition-colors;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary text-white px-6 py-3 rounded-card font-semibold transition-colors hover:bg-primary-light active:bg-primary;
+    @apply bg-primary text-white px-6 py-3 rounded-2xl font-bold transition-all 
+           hover:bg-primary-light hover:shadow-lg hover:shadow-primary/20 
+           active:scale-[0.98] disabled:opacity-50 disabled:grayscale;
   }
 
   .card {
-    @apply bg-surface p-2 rounded-card shadow-card border border-border;
+    @apply bg-surface/80 backdrop-blur-sm p-4 rounded-3xl shadow-sm border border-border/50 
+           transition-all duration-300;
   }
+
+  .glass {
+    @apply bg-white/60 backdrop-blur-md border border-white/40 shadow-xl;
+  }
+
+  .neo-shadow {
+    box-shadow: 
+      0 10px 15px -3px rgba(0, 0, 0, 0.05),
+      0 4px 6px -2px rgba(0, 0, 0, 0.025),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  }
+
+  .premium-gradient {
+    @apply bg-gradient-to-br from-primary via-primary-light to-primary;
+  }
+
+  .active-ring {
+    @apply ring-4 ring-primary/10 border-primary shadow-lg scale-[1.02];
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .mask-fade-out {
+    mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+  }
+}
+
+/* Animations */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
 }

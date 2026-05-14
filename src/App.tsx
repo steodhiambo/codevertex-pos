@@ -11,6 +11,7 @@ import MyBills from './screens/MyBills';
 import RoomsGrid from './screens/RoomsGrid';
 import Facilities from './screens/Facilities';
 import Dashboard from './screens/Dashboard';
+import WaiterDashboard from './screens/WaiterDashboard';
 import Stock from './screens/Stock';
 import UserManagement from './screens/UserManagement';
 import PaymentModal from './components/PaymentModal';
@@ -33,7 +34,12 @@ function App() {
   const [selectedBill, setSelectedBill] = useState<any>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
-  const [currentOrderContext, setCurrentOrderContext] = useState<{tableId: string, tableName: string, guestCount: number} | null>(null);
+  const [currentOrderContext, setCurrentOrderContext] = useState<{
+    tableId: string;
+    tableName: string;
+    guestCount: number;
+    existingOrderId?: string;
+  } | null>(null);
 
   // Persistence check on mount
   useEffect(() => {
@@ -49,7 +55,7 @@ function App() {
 
   const setDefaultTab = (role: Role) => {
     switch (role) {
-      case 'Waiter': setActiveTab('tables'); break;
+      case 'Waiter': setActiveTab('waiter-dashboard'); break;
       case 'Kitchen': setActiveTab('kitchen'); break;
       case 'Bar': setActiveTab('bar'); break;
       case 'Cashier': setActiveTab('bills'); break;
@@ -98,8 +104,8 @@ function App() {
     setStep('end-shift');
   };
 
-  const handleTableSelect = (tableId: string, tableName: string, guestCount: number) => {
-    setCurrentOrderContext({ tableId, tableName, guestCount });
+  const handleTableSelect = (tableId: string, tableName: string, guestCount: number, existingOrderId?: string) => {
+    setCurrentOrderContext({ tableId, tableName, guestCount, existingOrderId });
     setActiveTab('order-entry');
   };
 
@@ -117,6 +123,15 @@ function App() {
 
   const renderContent = () => {
     switch (activeTab) {
+      case 'waiter-dashboard':
+        return (
+          <WaiterDashboard
+            waiterId={user?.id || ''}
+            waiterName={user?.full_name || 'Waiter'}
+            onGoToTables={() => setActiveTab('tables')}
+            onGoToMyBills={() => setActiveTab('my-bills')}
+          />
+        );
       case 'dashboard':
         return <Dashboard />;
       case 'tables':
@@ -126,6 +141,7 @@ function App() {
           <OrderEntry
             context={currentOrderContext}
             waiterId={user?.id || ''}
+            isWaiter={user?.role === 'Waiter'}
             onBack={() => setActiveTab('tables')}
             onOrderPlaced={user?.role === 'Waiter' ? handleLogout : () => setActiveTab('tables')}
           />
@@ -170,9 +186,10 @@ function App() {
 
   return (
     <MainLayout
+      userId={user?.id}
       userRole={user?.role || 'Waiter'}
       userName={user?.full_name}
-      activeTab={activeTab === 'order-entry' ? 'tables' : activeTab}
+      activeTab={activeTab === 'order-entry' ? (user?.role === 'Waiter' ? 'waiter-dashboard' : 'tables') : activeTab}
       setActiveTab={setActiveTab}
       onLogout={handleLogout}
     >
