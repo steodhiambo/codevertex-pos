@@ -250,6 +250,12 @@ async def update_order_status(order_id: str, status_data: schemas.OrderUpdate, d
         if db_table:
             db_table.status = "available"
 
+    # If order is voided, store reason and who voided it
+    if status_data.status == "voided":
+        db_order.void_reason = status_data.void_reason
+        db_order.voided_by = status_data.voided_by
+        db_order.voided_at = datetime.datetime.utcnow()
+
     db.commit()
     db.refresh(db_order)
 

@@ -55,6 +55,9 @@ class Order(Base):
     tax = Column(Numeric(12, 2), default=0)
     total = Column(Numeric(12, 2), default=0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    void_reason = Column(String, nullable=True)
+    voided_by = Column(String, nullable=True)
+    voided_at = Column(DateTime, nullable=True)
     items = relationship("OrderItem", back_populates="order")
 
 class OrderItem(Base):
