@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Minus, Trash2, ChevronRight, Receipt, ArrowLeft, Loader2, CheckCircle2, ShoppingCart, PlusCircle, ChevronDown, ChevronUp, LogOut, ShieldCheck } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, ArrowLeft, Search, Plus, Minus, Trash2, ShoppingCart, CheckCircle } from 'lucide-react';
 import { menuApi, orderApi } from '../lib/api';
 import VoidItemModal from '../components/VoidItemModal';
-
-type Destination = 'kitchen' | 'bar';
 
 interface MenuItem {
   id: string;
@@ -12,13 +9,12 @@ interface MenuItem {
   price: number;
   category_id?: string;
   category_name?: string;
-  production_area?: Destination;
+  production_area?: 'kitchen' | 'bar';
   image?: string;
 }
 
 interface CartItem extends MenuItem {
   quantity: number;
-  note?: string;
 }
 
 interface ExistingOrderItem {
@@ -29,36 +25,24 @@ interface ExistingOrderItem {
   is_cooked: boolean;
 }
 
-const BAR_CATEGORIES = new Set(['Drinks', 'Cocktails', 'Beverages', 'Hot Drinks']);
-const destinationOf = (item: MenuItem): Destination => {
-  if (item.production_area) return item.production_area;
-  if (item.category_name && BAR_CATEGORIES.has(item.category_name)) return 'bar';
-  return 'kitchen';
-};
-
 interface OrderEntryProps {
   context: { tableId: string; tableName: string; guestCount: number; existingOrderId?: string } | null;
   waiterId: string;
-  isWaiter?: boolean;
   onBack: () => void;
   onOrderPlaced?: () => void;
 }
 
-const AUTO_LOGOUT_SECONDS = 3;
-
-const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = false, onBack, onOrderPlaced }) => {
+const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, onBack, onOrderPlaced }) => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<string[]>(['All']);
+  const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState('All');
+  const [selectedCategory, setSelectedCategory] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [logoutCountdown, setLogoutCountdown] = useState(AUTO_LOGOUT_SECONDS);
   const [voidingItem, setVoidingItem] = useState<CartItem | null>(null);
   const [existingItems, setExistingItems] = useState<ExistingOrderItem[]>([]);
-  const [showExistingItems, setShowExistingItems] = useState(true);
   const isAddToBillMode = Boolean(context?.existingOrderId);
 
   useEffect(() => {
@@ -70,7 +54,8 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
         ]);
         setMenuItems(menuData);
         const catNames = catData.map((c: any) => c.name);
-        setCategories(['All', ...catNames]);
+        setCategories(catNames);
+        if (catNames.length > 0) setSelectedCategory(catNames[0]);
       } catch (error) {
         console.error('Failed to fetch menu data:', error);
       } finally {
@@ -80,7 +65,6 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
     fetchMenuData();
   }, []);
 
-  // Fetch existing order items when in Add-to-Bill mode
   useEffect(() => {
     if (context?.existingOrderId && context?.tableId) {
       orderApi.getByTable(context.tableId)
@@ -89,8 +73,8 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
     }
   }, [context?.existingOrderId, context?.tableId]);
 
-  const filteredMenu = menuItems.filter(item => 
-    (selectedCategory === 'All' || item.category_name === selectedCategory) &&
+  const filteredMenu = menuItems.filter(item =>
+    (selectedCategory === '' || item.category_name === selectedCategory) &&
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -107,19 +91,10 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
   const updateQuantity = (id: string, delta: number) => {
     setCart(prev => prev.map(i => {
       if (i.id === id) {
-        const newQty = Math.max(1, i.quantity + delta);
-        return { ...i, quantity: newQty };
+        return { ...i, quantity: Math.max(1, i.quantity + delta) };
       }
       return i;
     }));
-  };
-
-  const updateNote = (id: string, note: string) => {
-    setCart(prev => prev.map(i => i.id === id ? { ...i, note } : i));
-  };
-
-  const requestRemove = (item: CartItem) => {
-    setVoidingItem(item);
   };
 
   const confirmRemove = (_reason: string) => {
@@ -127,12 +102,6 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
       setCart(prev => prev.filter(i => i.id !== voidingItem.id));
     }
     setVoidingItem(null);
-  };
-
-  const clearCart = () => {
-    if (window.confirm('Are you sure you want to clear the cart?')) {
-      setCart([]);
-    }
   };
 
   const newItemsTotal = cart.reduce((sum, item) => sum + (Number(item.price) * item.quantity), 0);
@@ -143,17 +112,14 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
     setIsSending(true);
     try {
       if (isAddToBillMode && context?.existingOrderId) {
-        // Add-to-Bill: PATCH existing order
         await orderApi.addItems(context.existingOrderId, cart.map(item => ({
           menu_item_id: item.id,
           quantity: item.quantity,
           unit_price: item.price,
-          notes: item.note || ''
         })));
       } else {
-        // New order: POST
         await orderApi.create({
-          id: crypto.randomUUID(),
+          id: crypto.randomUUID?.() ?? 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16); }),
           table_id: context?.tableId || 'T1',
           waiter_id: waiterId || 'W1',
           guest_count: context?.guestCount || 1,
@@ -161,20 +127,16 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
             menu_item_id: item.id,
             quantity: item.quantity,
             unit_price: item.price,
-            notes: item.note || ''
           }))
         });
       }
       setIsSuccess(true);
-      if (!isWaiter) {
-        setTimeout(() => {
-          setCart([]);
-          setIsSuccess(false);
-          if (onOrderPlaced) onOrderPlaced();
-          else onBack();
-        }, 2000);
-      }
-      // Waiter path: countdown effect below drives the logout
+      setTimeout(() => {
+        setCart([]);
+        setIsSuccess(false);
+        if (onOrderPlaced) onOrderPlaced();
+        else onBack();
+      }, 2000);
     } catch (error) {
       console.error('Failed to send order:', error);
       alert('Failed to send order. Please try again.');
@@ -195,332 +157,229 @@ const OrderEntry: React.FC<OrderEntryProps> = ({ context, waiterId, isWaiter = f
   if (isSuccess) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-in zoom-in duration-500">
-        <div className="w-24 h-24 bg-success/10 text-success rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 shadow-xl shadow-success/10">
-          <CheckCircle2 size={56} />
+        <div className="w-16 h-16 rounded-2xl bg-success/10 flex items-center justify-center mb-4">
+          <CheckCircle size={32} className="text-success" />
         </div>
-        <h2 className="text-4xl font-black text-text-primary mb-3 tracking-tighter uppercase">
+        <h2 className="text-xl font-black text-text-primary font-heading mb-1">
           {isAddToBillMode ? 'Items Added!' : 'Order Sent!'}
         </h2>
-        <p className="text-text-secondary text-lg font-medium opacity-70">
-          {isAddToBillMode ? 'New items appended to the existing bill.' : 'The production units have been notified.'}
+        <p className="text-sm text-text-secondary font-medium">
+          {isAddToBillMode ? 'New items appended to the existing bill.' : 'Kitchen & Bar have been notified.'}
         </p>
       </div>
     );
   }
 
+  const cartCount = cart.reduce((s, i) => s + i.quantity, 0);
+
   return (
-    <div className="flex h-[calc(100vh-64px-48px)] gap-0 overflow-hidden bg-bg/50 rounded-[2.5rem] border border-border/40 shadow-inner relative">
-      {/* Left Side: Category Rail - Compact */}
-      <div className="w-20 flex flex-col bg-white border-r border-border/40 overflow-y-auto shrink-0 py-6 px-2 gap-3">
-        <div className="flex items-center justify-center mb-4">
-          <div className="p-2 bg-primary/5 rounded-xl text-primary">
-            <ShoppingCart size={18} />
-          </div>
+    <div className="flex flex-col h-full bg-bg">
+      {/* Void Item Modal */}
+      {voidingItem && (
+        <VoidItemModal
+          isOpen={true}
+          onClose={() => setVoidingItem(null)}
+          onConfirm={confirmRemove}
+          itemName={voidingItem.name}
+        />
+      )}
+
+      {/* Add-to-Bill Banner */}
+      {isAddToBillMode && existingItems.length > 0 && (
+        <div className="bg-blue-50 px-3 py-1.5 text-[11px] text-blue-600 font-medium shrink-0">
+          Current bill: {existingItems.length} items · KES {existingTotal.toLocaleString()}
         </div>
-        {categories.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setSelectedCategory(cat)}
-            className={`
-              flex flex-col items-center justify-center p-2.5 rounded-[1.5rem] aspect-square transition-all duration-300 relative group
-              ${selectedCategory === cat 
-                ? 'bg-primary text-white shadow-lg shadow-primary/20 scale-105' 
-                : 'text-text-secondary hover:bg-bg/80 hover:text-primary'
-              }
-            `}
-          >
-            <span className="text-[9px] font-black uppercase tracking-tight text-center leading-[1.1] z-10 break-words">
-              {cat}
-            </span>
-            {selectedCategory === cat && (
-              <motion.div 
-                layoutId="activeCat"
-                className="absolute inset-0 bg-primary rounded-[1.5rem] -z-0"
-                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-              />
-            )}
-          </button>
-        ))}
-      </div>
+      )}
 
-      {/* Center: Menu Selection - Auto-filling Grid */}
-      <div className="flex-1 flex flex-col min-w-0 py-6 px-6">
-        <div className="flex items-center gap-4 mb-6">
-          <button 
-            onClick={onBack}
-            className="group flex items-center gap-2 p-3 bg-white border border-border/40 rounded-xl text-text-secondary hover:text-primary transition-all active:scale-95 shadow-sm"
-          >
-            <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
-          </button>
-          
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-text-secondary opacity-40" size={20} />
-            <input
-              type="text"
-              placeholder="Search menu..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full h-12 pl-12 pr-6 rounded-[1.5rem] bg-white border border-border/40 focus:outline-none focus:border-primary/50 transition-all text-base font-bold tracking-tight shadow-sm"
-            />
-          </div>
-
-          <div className={`hidden lg:flex items-center gap-3 px-4 h-12 border rounded-[1.5rem] shadow-sm shrink-0 ${
-            isAddToBillMode ? 'bg-info/10 border-info/30' : 'bg-white border-border/40'
-          }`}>
-            {isAddToBillMode && <PlusCircle size={14} className="text-info" />}
-            <span className={`text-sm font-black leading-none ${isAddToBillMode ? 'text-info' : 'text-primary'}`}>
-              {context?.tableName || 'T1'}
-            </span>
-            <div className="w-px h-4 bg-border/60" />
-            <span className={`text-sm font-black leading-none ${isAddToBillMode ? 'text-info' : 'text-primary'}`}>
-              {isAddToBillMode ? 'Add to Bill' : `${context?.guestCount || 2}p`}
-            </span>
-          </div>
+      {/* Header Bar */}
+      <div className="flex items-center gap-2 px-4 py-2.5 bg-surface border-b border-border shrink-0 shadow-sm">
+        <button
+          onClick={onBack}
+          className="w-8 h-8 rounded-lg border border-border bg-surface flex items-center justify-center text-text-secondary hover:text-primary hover:border-primary/30 transition-all active:scale-95"
+        >
+          <ArrowLeft size={16} />
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-text-primary">{context?.tableName || 'Table'}</span>
+          <span className="text-[10px] font-medium text-text-secondary bg-bg px-2 py-0.5 rounded-full">
+            {context?.guestCount || 1} guests
+          </span>
         </div>
-
-        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-          <motion.div 
-            layout
-            className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-5 pb-10"
-          >
-            <AnimatePresence mode="popLayout">
-              {filteredMenu.map((item, idx) => {
-                const dest = destinationOf(item);
-                const inCart = cart.find(c => c.id === item.id);
-                return (
-                  <motion.button
-                    layout
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.3, delay: idx * 0.01 }}
-                    key={item.id}
-                    onClick={() => addToCart(item)}
-                    className="group relative flex flex-col p-5 text-left bg-white rounded-[2rem] border border-border/40 shadow-sm hover:shadow-xl hover:shadow-primary/5 transition-all active:scale-[0.98]"
-                  >
-                    <div className="absolute top-3 right-3">
-                      <div className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest ${
-                        dest === 'bar' ? 'bg-info/10 text-info' : 'bg-warning/10 text-warning'
-                      }`}>
-                        {dest}
-                      </div>
-                    </div>
-
-                    <div className="w-full h-32 rounded-[1.5rem] bg-bg flex items-center justify-center text-primary/20 font-black text-5xl group-hover:scale-105 transition-transform duration-500 overflow-hidden mb-4">
-                      {item.name.charAt(0)}
-                    </div>
-
-                    <div className="flex flex-col flex-1">
-                      <h3 className="font-black text-text-primary leading-tight uppercase tracking-tight text-sm line-clamp-2 mb-2">
-                        {item.name}
-                      </h3>
-                      
-                      <div className="mt-auto flex justify-between items-center pt-3 border-t border-dashed border-border/60">
-                        <span className="text-lg font-black text-primary font-mono tracking-tighter">
-                          {Number(item.price).toLocaleString()}
-                        </span>
-                        {inCart ? (
-                          <div className="bg-primary text-white w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black shadow-lg">
-                            {inCart.quantity}
-                          </div>
-                        ) : (
-                          <div className="w-8 h-8 bg-primary/5 text-primary rounded-xl flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-all">
-                            <Plus size={16} />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.button>
-                );
-              })}
-            </AnimatePresence>
-          </motion.div>
-        </div>
-      </div>
-
-      {/* Right Side: Cart Panel */}
-      <div className="w-[380px] flex flex-col bg-white border-l border-border/40 shadow-2xl shrink-0">
-        <div className={`p-6 border-b border-border/40 flex items-center justify-between ${isAddToBillMode ? 'bg-info/5' : 'bg-bg/10'}`}>
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${isAddToBillMode ? 'bg-info/10' : 'bg-primary/10'}`}>
-              {isAddToBillMode
-                ? <PlusCircle size={18} className="text-info" />
-                : <Receipt size={18} className="text-primary" />}
-            </div>
-            <div>
-              <h2 className="text-lg font-black text-text-primary uppercase tracking-tighter leading-none">
-                {isAddToBillMode ? 'Add to Bill' : 'Cart'}
-              </h2>
-              {isAddToBillMode && (
-                <p className="text-[10px] font-bold text-info/70 uppercase tracking-widest mt-0.5">Appending to existing order</p>
-              )}
-            </div>
-          </div>
-          <button onClick={clearCart} className="p-2 text-text-secondary hover:text-error transition-all">
-            <Trash2 size={18} />
-          </button>
-        </div>
-
-        {/* Collapsible existing bill items */}
-        {isAddToBillMode && existingItems.length > 0 && (
-          <div className="border-b border-border/40">
-            <button
-              onClick={() => setShowExistingItems(p => !p)}
-              className="w-full flex items-center justify-between px-6 py-3 hover:bg-bg/50 transition-colors"
-            >
-              <span className="text-[10px] font-black uppercase tracking-[0.15em] text-text-secondary">
-                Current Bill ({existingItems.length} item{existingItems.length !== 1 ? 's' : ''})
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-black text-text-secondary font-mono">KES {existingTotal.toLocaleString()}</span>
-                {showExistingItems ? <ChevronUp size={14} className="text-text-secondary" /> : <ChevronDown size={14} className="text-text-secondary" />}
-              </div>
-            </button>
-            <AnimatePresence>
-              {showExistingItems && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.22 }}
-                  className="overflow-hidden"
-                >
-                  <div className="px-6 pb-4 space-y-2 bg-bg/30">
-                    {existingItems.map(item => (
-                      <div key={item.id} className="flex items-center justify-between py-2 border-b border-dashed border-border/40 last:border-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-black text-white shrink-0 ${item.is_cooked ? 'bg-success' : 'bg-warning'}`}>
-                            {item.quantity}
-                          </span>
-                          <span className="text-xs font-bold text-text-secondary truncate">{item.name || '—'}</span>
-                        </div>
-                        <span className="text-xs font-black text-text-secondary font-mono shrink-0 ml-2">
-                          {(Number(item.unit_price) * item.quantity).toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+        {isAddToBillMode && (
+          <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full ml-auto border border-blue-200">
+            + ADD TO BILL
+          </span>
         )}
+      </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
-          {isAddToBillMode && cart.length > 0 && (
-            <div className="text-[9px] font-black uppercase tracking-[0.15em] text-info flex items-center gap-2">
-              <PlusCircle size={12} /> New Items to Add
+      {/* Split Layout */}
+      <div className="flex flex-1 overflow-hidden flex-wrap">
+        {/* Left: Menu Area */}
+        <div className="flex-[1_1_55%] min-w-[260px] flex flex-col bg-surface border-r border-border">
+          {/* Search */}
+          <div className="p-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
+              <input
+                placeholder="Search menu items..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 h-9 rounded-lg border border-border text-xs outline-none focus:border-primary/50 transition-colors bg-bg"
+              />
+            </div>
+          </div>
+
+          {/* Categories (hide when searching) */}
+          {!searchQuery && (
+            <div className="flex gap-1 px-2 pb-2 overflow-x-auto shrink-0 scrollbar-thin">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold whitespace-nowrap transition-all active:scale-95 ${
+                    selectedCategory === cat
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'bg-surface text-text-secondary border border-border hover:border-primary/30 hover:text-primary'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
             </div>
           )}
-          <AnimatePresence mode="popLayout">
-            {cart.length === 0 ? (
-              <div className="h-40 flex flex-col items-center justify-center text-center opacity-20 px-8">
-                <ShoppingCart size={48} className="mb-4" />
-                <p className="text-xs font-black uppercase tracking-widest">
-                  {isAddToBillMode ? 'Select items to add' : 'Select Items'}
-                </p>
-              </div>
-            ) : (
-              (['kitchen', 'bar'] as Destination[]).map(dest => {
-                const groupItems = cart.filter(c => destinationOf(c) === dest);
-                if (groupItems.length === 0) return null;
+
+          {/* Menu Grid */}
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
+              {filteredMenu.length === 0 ? (
+                <div className="col-span-full text-center py-12 text-text-secondary text-xs">
+                  No items found
+                </div>
+              ) : filteredMenu.map(item => {
+                const inCart = cart.find(c => c.id === item.id);
                 return (
-                  <div key={dest} className="space-y-3">
-                    <div className={`text-[9px] font-black uppercase tracking-widest ${dest === 'bar' ? 'text-info' : 'text-warning'}`}>
-                      {dest} Orders
+                  <div
+                    key={item.id}
+                    onClick={() => addToCart(item)}
+                    className={`relative rounded-xl p-3 cursor-pointer border-2 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                      inCart
+                        ? 'bg-primary/[0.04] border-primary/40 shadow-sm'
+                        : 'bg-bg border-border hover:border-primary/30'
+                    }`}
+                  >
+                    {inCart && (
+                      <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary text-white text-[8px] font-bold flex items-center justify-center shadow-sm">
+                        {inCart.quantity}
+                      </div>
+                    )}
+                    <div className="text-xs font-semibold leading-snug mb-1.5 text-text-primary line-clamp-2">{item.name}</div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-bold text-primary">KES {Number(item.price).toLocaleString()}</div>
+                      {item.production_area === 'bar' && (
+                        <span className="text-[8px] font-medium text-info bg-info/10 px-1.5 py-0.5 rounded">Bar</span>
+                      )}
                     </div>
-                    {groupItems.map(item => (
-                      <motion.div 
-                        layout
-                        initial={{ opacity: 0, x: 20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        key={item.id} 
-                        className="flex flex-col gap-3 p-4 bg-bg/50 rounded-[1.5rem] border border-border/40 hover:bg-white transition-all"
-                      >
-                        <div className="flex gap-3 items-center">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-black text-xs text-text-primary uppercase truncate">{item.name}</h4>
-                            <p className="text-xs text-primary font-mono">{Number(item.price).toLocaleString()}</p>
-                          </div>
-                          <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-border/40 shadow-sm">
-                            <button onClick={() => updateQuantity(item.id, -1)} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-bg transition-all">
-                              <Minus size={12} />
-                            </button>
-                            <span className="w-4 text-center text-[10px] font-black">{item.quantity}</span>
-                            <button onClick={() => updateQuantity(item.id, 1)} className="w-6 h-6 flex items-center justify-center rounded-lg hover:bg-bg transition-all">
-                              <Plus size={12} />
-                            </button>
-                          </div>
-                          <button onClick={() => requestRemove(item)} className="p-1.5 text-text-secondary hover:text-error">
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          placeholder="Notes..."
-                          value={item.note || ''}
-                          onChange={(e) => updateNote(item.id, e.target.value)}
-                          className="bg-white/50 px-3 py-1.5 rounded-lg text-[9px] font-bold focus:outline-none border border-transparent focus:border-primary/20"
-                        />
-                      </motion.div>
-                    ))}
                   </div>
                 );
-              })
-            )}
-          </AnimatePresence>
-        </div>{/* end flex-1 scrollable */}
-
-        {/* Summary Footer */}
-        <div className="p-6 border-t border-border/40 bg-surface shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.03)] space-y-4">
-          <div className="space-y-2">
-            {isAddToBillMode && existingItems.length > 0 && (
-              <div className="flex justify-between text-[10px] font-black text-text-secondary uppercase tracking-widest opacity-60">
-                <span>Existing Bill</span>
-                <span className="font-mono">KES {existingTotal.toLocaleString()}</span>
-              </div>
-            )}
-            <div className="flex justify-between text-[10px] font-black text-text-secondary uppercase tracking-widest">
-              <span>{isAddToBillMode ? 'New Items' : 'Subtotal'}</span>
-              <span className="font-mono">KES {newItemsTotal.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-end pt-2 border-t border-border/60">
-              <span className="text-xs font-black uppercase tracking-widest text-text-primary">
-                {isAddToBillMode ? 'Updated Total' : 'Total Payable'}
-              </span>
-              <span className="text-3xl font-black text-primary font-mono tracking-tighter">
-                {(isAddToBillMode ? existingTotal + newItemsTotal : newItemsTotal).toLocaleString()}
-              </span>
+              })}
             </div>
           </div>
+        </div>
 
-          <button
-            disabled={cart.length === 0 || isSending}
-            onClick={handleSendToKitchen}
-            className={`w-full h-16 rounded-[1.5rem] text-white text-base font-black uppercase tracking-widest shadow-xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale overflow-hidden relative group ${
-              isAddToBillMode ? 'bg-info hover:bg-info/90 shadow-info/20' : 'premium-gradient shadow-primary/20'
-            }`}
-          >
-            {isSending ? (
-              <Loader2 className="animate-spin" size={24} />
-            ) : (
-              <>
-                {isAddToBillMode && <PlusCircle size={18} />}
-                {isAddToBillMode ? 'Add to Bill' : 'Place Order'}
-                <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
-              </>
+        {/* Right: Cart Area */}
+        <div className="flex-[1_1_35%] min-w-[240px] flex flex-col bg-bg border-l border-border">
+          {/* Cart Header */}
+          <div className="px-3 py-2.5 border-b border-border bg-surface flex items-center gap-2 shrink-0">
+            <ShoppingCart size={14} className="text-primary" />
+            <span className="text-xs font-bold text-text-primary">Order</span>
+            {cartCount > 0 && (
+              <span className="text-[9px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded-full ml-auto">
+                {cartCount} items
+              </span>
             )}
-          </button>
-        </div>{/* end Summary Footer */}
-      </div>{/* end w-[380px] cart panel */}
+          </div>
 
-      <VoidItemModal
-        isOpen={voidingItem !== null}
-        onClose={() => setVoidingItem(null)}
-        onConfirm={confirmRemove}
-        itemName={voidingItem?.name || ''}
-      />
+          {/* Cart Items */}
+          <div className="flex-1 overflow-y-auto">
+            {cart.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-text-secondary px-4">
+                <ShoppingCart size={32} className="opacity-20 mb-2" />
+                <p className="text-[11px] font-medium opacity-50">Tap items from menu to start order</p>
+              </div>
+            ) : (
+              <div className="p-1.5 space-y-1">
+                {cart.map(item => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-1.5 px-2.5 py-2 bg-surface rounded-xl border border-border shadow-sm hover:shadow transition-all duration-200"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-semibold text-text-primary truncate">{item.name}</div>
+                      <div className="text-[9px] text-text-secondary">
+                        KES {Number(item.price).toLocaleString()} × {item.quantity}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => updateQuantity(item.id, -1)}
+                        className="w-6 h-6 rounded-md border border-border bg-surface flex items-center justify-center hover:border-primary hover:text-primary transition-all active:scale-90"
+                      >
+                        <Minus size={10} />
+                      </button>
+                      <span className="text-xs font-bold text-text-primary w-5 text-center">{item.quantity}</span>
+                      <button
+                        onClick={() => updateQuantity(item.id, 1)}
+                        className="w-6 h-6 rounded-md border border-border bg-surface flex items-center justify-center hover:border-primary hover:text-primary transition-all active:scale-90"
+                      >
+                        <Plus size={10} />
+                      </button>
+                    </div>
+                    <span className="text-xs font-bold text-primary min-w-[44px] text-right tabular-nums">
+                      KES {(Number(item.price) * item.quantity).toLocaleString()}
+                    </span>
+                    <button
+                      onClick={() => setVoidingItem(item)}
+                      className="w-5 h-5 rounded-md bg-red-50 text-red-400 flex items-center justify-center hover:bg-red-100 hover:text-red-500 transition-all active:scale-90"
+                    >
+                      <Trash2 size={9} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Cart Footer */}
+          {cart.length > 0 && (
+            <div className="px-3 py-3 border-t border-border bg-surface space-y-2.5">
+              {isAddToBillMode && existingItems.length > 0 && (
+                <div className="flex justify-between text-[10px] text-text-secondary">
+                  <span>Existing bill</span>
+                  <span className="font-semibold">KES {existingTotal.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-baseline">
+                <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Total</span>
+                <span className="text-lg font-black text-primary font-heading">
+                  KES {(isAddToBillMode ? existingTotal + newItemsTotal : newItemsTotal).toLocaleString()}
+                </span>
+              </div>
+              <button
+                disabled={isSending}
+                onClick={handleSendToKitchen}
+                className="w-full h-11 rounded-xl bg-primary text-white text-sm font-bold hover:bg-primary-light transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+              >
+                {isSending ? (
+                  <><Loader2 className="animate-spin" size={16} /> Sending...</>
+                ) : (
+                  <><CheckCircle size={16} /> {isAddToBillMode ? 'Add to Bill' : 'Place Order'}</>
+                )}
+              </button>
+              <p className="text-[8px] text-text-secondary text-center opacity-50">Waiters auto-logout after placing</p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

@@ -8,12 +8,13 @@ import {
   Bed,
   Package,
   Users,
-  Bell,
   LogOut,
   Menu,
   X,
   History,
-  Waves
+  Waves,
+  ChevronDown,
+  Settings
 } from 'lucide-react';
 import NotificationDrawer, { NotificationItem } from '../components/NotificationDrawer';
 import { notificationApi, getWsUrl } from '../lib/api';
@@ -28,7 +29,6 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: 'waiter-dashboard', label: 'Dashboard', icon: <LayoutDashboard size={24} />, roles: ['Waiter'] },
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={24} />, roles: ['Manager', 'Admin'] },
   { id: 'tables', label: 'Tables', icon: <Grid size={24} />, roles: ['Waiter', 'Manager', 'Admin'] },
   { id: 'my-bills', label: 'My Bills', icon: <History size={24} />, roles: ['Waiter'] },
@@ -53,16 +53,16 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ children, userId, userRole, userName, activeTab, setActiveTab, onLogout }) => {
   const displayName = userName || userRole;
-  const initials = displayName.split(' ').map(s => s[0]).slice(0, 2).join('').toUpperCase();
+  const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [notifLoading, setNotifLoading] = useState(false);
 
   const filteredNavItems = navItems.filter(item => item.roles.includes(userRole));
 
-  // Only Waiters receive "Order Ready" notifications; other roles see an empty drawer.
-  const isNotifEnabled = userRole === 'Waiter' && Boolean(userId);
+  const isNotifEnabled = ['Waiter', 'Admin', 'Manager'].includes(userRole) && Boolean(userId);
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   const fetchNotifications = useCallback(async () => {
@@ -162,51 +162,77 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, userId, userRole, use
           ))}
         </nav>
 
-        <div className="p-4 border-t border-border">
-          <button 
-            onClick={onLogout}
-            className="flex items-center w-full gap-3 px-4 py-3 text-error hover:bg-red-50 rounded-card transition-colors cursor-pointer"
-          >
-            <LogOut size={24} />
-            <span className="font-medium">Logout</span>
-          </button>
-        </div>
       </aside>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
-        <header className="h-16 bg-surface border-b border-border flex items-center justify-between px-6 shrink-0">
-          <div className="flex items-center gap-4">
-            <button 
-              className="lg:hidden p-2 -ml-2 text-text-secondary"
+        <header className="h-12 bg-white border-b border-border flex items-center justify-between px-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              className="lg:hidden p-1 -ml-1 text-text-secondary"
               onClick={() => setIsSidebarOpen(true)}
             >
-              <Menu size={24} />
+              <Menu size={18} />
             </button>
-            <h2 className="text-xl font-bold text-text-primary capitalize">{activeTab}</h2>
+            <div className="w-5 h-5 rounded bg-primary flex items-center justify-center">
+              <span className="text-white text-[7px] font-black">CV</span>
+            </div>
+            <span className="text-[11px] font-bold text-text-primary hidden sm:inline">Codevertex POS</span>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setIsNotificationsOpen(true)}
-              className="relative p-2 text-text-secondary hover:bg-bg rounded-full transition-colors"
-            >
-              <Bell size={24} />
-              {unreadCount > 0 && (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-error text-white text-[10px] font-black rounded-full flex items-center justify-center shadow-sm ring-2 ring-surface">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
+
+          <div className="flex items-center gap-2">
+            {/* Notification bell */}
+            {isNotifEnabled && (
+              <button
+                onClick={() => setIsNotificationsOpen(true)}
+                className="relative w-7 h-7 rounded-md border border-border flex items-center justify-center text-xs hover:bg-bg transition-colors"
+              >
+                🔔
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-error text-white text-[7px] font-bold flex items-center justify-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* Profile Avatar + Dropdown */}
+            <div className="relative flex items-center">
+              <button
+                onClick={() => setIsProfileOpen(!isProfileOpen)}
+                className="flex items-center gap-0.5 rounded-lg hover:bg-bg transition-colors"
+              >
+                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center shrink-0">
+                  <span className="text-white text-[9px] font-bold">{initials}</span>
+                </div>
+                <ChevronDown size={10} className="text-text-secondary" />
+              </button>
+
+              {isProfileOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsProfileOpen(false)} />
+                  <div className="absolute right-0 top-full w-44 bg-surface rounded-xl shadow-xl border border-border z-50 py-1 overflow-hidden">
+                    <div className="px-3 py-2.5 border-b border-border">
+                      <p className="text-sm font-bold text-text-primary">{userName || userRole}</p>
+                      <p className="text-[10px] text-text-secondary font-medium">{userRole}</p>
+                    </div>
+                    <div className="py-1">
+                      <button
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-text-secondary hover:bg-bg transition-colors"
+                      >
+                        <Settings size={15} /> Settings
+                      </button>
+                      <button
+                        onClick={() => { onLogout(); setIsProfileOpen(false); }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-error hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut size={15} /> Logout
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
-            </button>
-            <div className="flex items-center gap-3 pl-4 border-l border-border">
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold text-text-primary">{displayName}</p>
-                <p className="text-xs text-text-secondary">{userRole}</p>
-              </div>
-              <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center font-bold">
-                {initials}
-              </div>
             </div>
           </div>
         </header>
@@ -272,7 +298,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children, userId, userRole, use
         onClose={() => setIsNotificationsOpen(false)}
         notifications={notifications}
         loading={notifLoading}
-        unreadCount={unreadCount}
         onMarkRead={handleMarkRead}
         onMarkAllRead={handleMarkAllRead}
         onClear={handleClear}

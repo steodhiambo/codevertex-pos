@@ -1,91 +1,116 @@
-import React, { useState, useEffect } from 'react';
-import { motion, useAnimation } from 'framer-motion';
-import Numpad from '../components/Numpad';
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 
-const PIN_LENGTH = 4;
+const PIN_MIN = 4;
+const PIN_MAX = 6;
 
 interface PinLoginProps {
-  onLogin: (pin: string) => void;
+  onLogin: (pin: string) => void | Promise<void>;
+  onForgotPin?: () => void;
 }
 
-const PinLogin: React.FC<PinLoginProps> = ({ onLogin }) => {
+const PinLogin: React.FC<PinLoginProps> = ({ onLogin, onForgotPin }) => {
   const [pin, setPin] = useState('');
-  const controls = useAnimation();
+  const [error, setError] = useState('');
+  const [shake, setShake] = useState(false);
 
   const handleKeyPress = (key: string) => {
-    if (pin.length < PIN_LENGTH) {
-      setPin(prev => prev + key);
+    if (pin.length >= PIN_MAX) return;
+    const next = pin + key;
+    setPin(next);
+    setError('');
+
+    if (next.length >= PIN_MIN) {
+      Promise.resolve(onLogin(next)).catch(() => {
+        setError('Invalid PIN');
+        setShake(true);
+        setTimeout(() => { setPin(''); setShake(false); }, 600);
+      });
     }
   };
 
   const handleDelete = () => {
     setPin(prev => prev.slice(0, -1));
-  };
-
-  useEffect(() => {
-    if (pin.length === PIN_LENGTH) {
-      handleAuth();
-    }
-  }, [pin]);
-
-  const handleAuth = async () => {
-    try {
-      await onLogin(pin);
-    } catch (error) {
-      shake();
-    }
-  };
-
-  const shake = async () => {
-    await controls.start({
-      x: [-10, 10, -10, 10, 0],
-      transition: { duration: 0.3 }
-    });
-    setPin('');
+    setError('');
   };
 
   return (
-    <div className="flex flex-col items-center justify-start h-screen bg-bg p-4 pt-8 overflow-hidden">
-      <div className="w-full max-w-sm flex flex-col items-center">
-        {/* Extreme Concise Header */}
-        <div className="text-center mb-4">
-          <h1 className="text-2xl font-black text-primary tracking-tighter uppercase">Codevertex</h1>
+    <div
+      className="min-h-screen flex items-start justify-center py-4 px-4 overflow-y-auto"
+      style={{ background: 'linear-gradient(135deg, #6B2D8B 0%, #8B4DAB 100%)' }}
+    >
+      <div className="bg-white rounded-[28px] p-6 max-w-[360px] w-full shadow-2xl text-center my-auto">
+        {/* Logo */}
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3"
+          style={{ background: 'linear-gradient(135deg, #6B2D8B, #8B4DAB)' }}
+        >
+          <span className="text-white text-xl font-black font-heading">CV</span>
         </div>
 
-        {/* Compact PIN Indicator */}
-        <motion.div 
-          animate={controls}
-          className="flex justify-center gap-3 mb-6"
+        <h1 className="text-lg font-black text-text-primary font-heading mb-0.5">Codevertex POS</h1>
+        <p className="text-[11px] text-text-secondary font-medium mb-4">Enter your PIN to sign in</p>
+
+        {/* PIN Dots */}
+        <motion.div
+          animate={shake ? { x: [-8, 8, -8, 8, 0] } : {}}
+          transition={{ duration: 0.4 }}
+          className="flex justify-center gap-2 mb-1"
         >
-          {[...Array(PIN_LENGTH)].map((_, i) => (
-            <motion.div
+          {[0, 1, 2, 3, 4, 5].map(i => (
+            <div
               key={i}
-              initial={false}
-              animate={{
-                scale: i < pin.length ? [1, 1.1, 1] : 1,
-                backgroundColor: i < pin.length ? '#6B2D8B' : 'transparent',
-                borderColor: i < pin.length ? '#6B2D8B' : '#8B4DAB'
+              className="w-3.5 h-3.5 rounded-full transition-all duration-150"
+              style={{
+                background: i < pin.length ? '#6B2D8B' : '#E8E5ED',
+                transform: i < pin.length ? 'scale(1.15)' : 'scale(1)',
+                boxShadow: i < pin.length ? '0 0 8px rgba(107,45,139,0.25)' : 'none',
               }}
-              className={`w-3 h-3 rounded-full border-2 transition-colors`}
             />
           ))}
         </motion.div>
+        <p className="text-[10px] text-text-secondary/50 mb-1">4-6 digit PIN</p>
 
-        {/* Numpad with reduced spacing */}
-        <Numpad 
-          onKeyPress={handleKeyPress} 
-          onDelete={handleDelete}
-          className="mb-4 w-full scale-95"
-        />
+        {error && (
+          <div className="py-1 px-2.5 rounded-md bg-red-50 text-red-500 text-[11px] font-semibold mb-2">
+            ⚠ {error}
+          </div>
+        )}
 
-        <div className="text-center">
-          <button 
-            onClick={() => alert('Please contact your manager to reset your PIN.')}
-            className="text-[10px] text-primary font-bold hover:underline uppercase tracking-tighter opacity-80"
+        {/* Numpad */}
+        <div className="grid grid-cols-3 gap-1.5 mt-3 max-w-[260px] mx-auto">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => (
+            <button
+              key={d}
+              onClick={() => handleKeyPress(String(d))}
+              className="h-12 rounded-xl border border-border bg-white text-lg font-black text-text-primary font-heading transition-all active:bg-primary/5 active:border-primary"
+            >
+              {d}
+            </button>
+          ))}
+          <button
+            onClick={onForgotPin}
+            className="h-12 rounded-xl border border-border bg-white text-[10px] font-semibold text-text-secondary hover:border-primary transition-colors"
           >
-            Trouble logging in?
+            Forgot?
+          </button>
+          <button
+            onClick={() => handleKeyPress('0')}
+            className="h-12 rounded-xl border border-border bg-white text-lg font-black text-text-primary font-heading transition-all active:bg-primary/5 active:border-primary"
+          >
+            0
+          </button>
+          <button
+            onClick={handleDelete}
+            className="h-12 rounded-xl border border-border bg-white text-sm text-text-secondary transition-all active:bg-primary/5 active:border-primary"
+          >
+            ⌫
           </button>
         </div>
+
+        <p className="text-[7px] text-text-secondary/40 mt-2">
+          PINs: 0000(Admin) · 1234/5678/4321(Waiters) · 1111(Cashier) · 2222(Kitchen) · 3333(Bar) · 4444(Reception) · 9999(Manager)
+        </p>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, CheckCircle2, Play, Bell, Loader2, Utensils, Coffee } from 'lucide-react';
+import { Loader2, Play, Check, Bell } from 'lucide-react';
 import { orderApi, getWsUrl } from '../lib/api';
 
 interface KDSItem {
@@ -22,17 +22,21 @@ interface KDSOrder {
   items: KDSItem[];
 }
 
-interface KDSProps {
-  type: 'kitchen' | 'bar';
-}
+interface KDSProps { type: 'kitchen' | 'bar'; }
+
+const timeNow = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 const KDS: React.FC<KDSProps> = ({ type }) => {
   const [orders, setOrders] = useState<KDSOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, tick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => tick(n => n + 1), 10000);
+    return () => clearInterval(t);
+  }, []);
 
   const isActive = (s: string) => s !== 'paid' && s !== 'voided';
-
-  // Only show orders that have at least one item matching this display's destination
   const matchesDestination = (order: KDSOrder) =>
     order.items.some(i => (i.production_area || 'kitchen') === type);
 
@@ -49,85 +53,33 @@ const KDS: React.FC<KDSProps> = ({ type }) => {
 
   useEffect(() => {
     fetchOrders();
-
     const ws = new WebSocket(getWsUrl('/kds'));
-
     ws.onmessage = (event) => {
       const updatedOrder: KDSOrder = JSON.parse(event.data);
       setOrders(prev => {
         const index = prev.findIndex(o => o.id === updatedOrder.id);
         const relevant = isActive(updatedOrder.status) && matchesDestination(updatedOrder);
-        if (index === -1) {
-          return relevant ? [updatedOrder, ...prev] : prev;
-        }
-        if (!relevant) {
-          return prev.filter(o => o.id !== updatedOrder.id);
-        }
+        if (index === -1) return relevant ? [updatedOrder, ...prev] : prev;
+        if (!relevant) return prev.filter(o => o.id !== updatedOrder.id);
         const newOrders = [...prev];
         newOrders[index] = updatedOrder;
         return newOrders;
       });
     };
-
     return () => ws.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 
-  const getElapsedTime = (startTime: string) => {
-    const mins = Math.floor((Date.now() - new Date(startTime).getTime()) / 60000);
-    return mins;
+  const updateStatus = async (orderId: string, status: string) => {
+    try { await orderApi.updateStatus(orderId, status); } catch (e) { console.error(e); }
   };
 
-  const updateOrderStatus = async (orderId: string, status: string) => {
-    try {
-      await orderApi.updateStatus(orderId, status);
-    } catch (error) {
-      alert('Failed to update order status');
-    }
+  const toggleItem = async (itemId: string, cooked: boolean) => {
+    try { await orderApi.toggleItem(itemId, cooked); } catch (e) { console.error(e); }
   };
 
-  const toggleItemCooked = async (itemId: string, currentStatus: boolean) => {
-    try {
-      await orderApi.toggleItem(itemId, !currentStatus);
-    } catch (error) {
-      alert('Failed to update item status');
-    }
-  };
-
-  const startAllItems = async (order: KDSOrder) => {
-    // Mark order as cooking; per-item "cooked" stays false until staff marks done
-    if (order.status === 'pending') {
-      await updateOrderStatus(order.id, 'cooking');
-    }
-  };
-
-  const markAllDone = async (order: KDSOrder) => {
-    const pendingItems = order.items.filter(
-      i => (i.production_area || 'kitchen') === type && !i.is_cooked
-    );
-    await Promise.all(pendingItems.map(i => orderApi.toggleItem(i.id, true)));
-  };
-
-  const notifyWaiter = async (order: KDSOrder) => {
-    await updateOrderStatus(order.id, 'ready');
-  };
-
-  const getStatusColor = (status: KDSOrder['status'], elapsed: number) => {
-    if (status === 'ready') return 'border-success bg-success/5';
-    if (elapsed >= 15) return 'border-error bg-error/5 animate-pulse';
-    if (status === 'cooking') return 'border-warning bg-warning/5';
-    return 'border-new bg-new/5';
-  };
-
-  const getStatusLabel = (status: KDSOrder['status'], elapsed: number) => {
-    if (status === 'ready') return { label: 'READY', color: 'bg-success' };
-    if (elapsed >= 15) return { label: 'URGENT', color: 'bg-error' };
-    if (status === 'cooking') return { label: 'COOKING', color: 'bg-warning' };
-    return { label: 'NEW', color: 'bg-new' };
-  };
-
-  const DestIcon = type === 'bar' ? Coffee : Utensils;
+  const headerIcon = type === 'bar' ? '🍺' : '🍳';
   const headerLabel = type === 'bar' ? 'Bar Display' : 'Kitchen Display';
+  const emptyIcon = type === 'bar' ? '🍹' : '👨‍🍳';
 
   if (loading) {
     return (
@@ -139,111 +91,120 @@ const KDS: React.FC<KDSProps> = ({ type }) => {
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 overflow-y-auto pb-6">
-      {orders.length === 0 ? (
-        <div className="col-span-full flex flex-col items-center justify-center h-64 text-text-secondary bg-surface rounded-card border border-dashed border-border">
-          <DestIcon size={48} className="mb-4 opacity-20" />
-          <p className="font-bold">No active orders for {headerLabel}</p>
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 bg-surface border-b border-border flex justify-between items-center shrink-0">
+        <div>
+          <h2 className="text-base font-black text-text-primary font-heading">{headerIcon} {headerLabel}</h2>
+          <p className="text-[10px] text-text-secondary font-medium">{orders.length} active</p>
         </div>
-      ) : (
-        orders.map(order => {
-          const elapsed = getElapsedTime(order.created_at);
-          const borderColor = getStatusColor(order.status, elapsed);
-          const statusInfo = getStatusLabel(order.status, elapsed);
-          const isUrgent = elapsed >= 15;
-          // Only items destined for THIS display
-          const myItems = order.items.filter(i => (i.production_area || 'kitchen') === type);
-          const allDone = myItems.length > 0 && myItems.every(i => i.is_cooked);
+        <span className="text-sm font-bold font-mono text-text-primary">{timeNow()}</span>
+      </div>
 
-          return (
-            <div
-              key={order.id}
-              className={`card flex flex-col p-0 border-t-8 shadow-xl ${borderColor} transition-all duration-300`}
-            >
-              {/* Header */}
-              <div className="p-4 border-b border-border bg-surface flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-black text-white ${statusInfo.color}`}>
-                      {statusInfo.label}
-                    </span>
-                    <h3 className="font-black text-lg text-text-primary tracking-tighter">Order #{order.id.slice(0, 4).toUpperCase()}</h3>
-                  </div>
-                  <p className="text-xs text-text-secondary font-bold uppercase tracking-widest">
-                    Table {order.table_name || order.table_id.slice(0, 4)}
-                  </p>
-                </div>
-                <div className={`flex flex-col items-end gap-1 font-mono font-black ${isUrgent ? 'text-error' : 'text-text-secondary'}`}>
-                  <div className="flex items-center gap-1">
-                    <Clock size={16} />
-                    <span className="text-xl">{elapsed}m</span>
-                  </div>
-                </div>
-              </div>
+      {/* Orders Grid */}
+      <div className="flex-1 overflow-y-auto p-3">
+        {orders.length === 0 ? (
+          <div className="text-center py-16">
+            <div className="text-4xl mb-2">{emptyIcon}</div>
+            <p className="text-sm font-medium text-text-secondary">All clear!</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {orders.map(o => {
+              const el = Math.round((Date.now() - new Date(o.created_at).getTime()) / 60000);
+              const allReady = o.items.filter(i => (i.production_area || 'kitchen') === type).every(i => i.is_cooked);
+              const someCooking = o.items.filter(i => (i.production_area || 'kitchen') === type).some(i => !i.is_cooked && o.status === 'cooking');
+              const borderColor = allReady ? '#10B981' : o.status === 'pending' ? '#F59E0B' : '#F97316';
+              const headerBg = allReady ? '#ECFDF5' : o.status === 'pending' ? '#FFFBEB' : '#FFF7ED';
+              const statusLabel = o.status === 'pending' ? 'NEW' : allReady ? 'READY' : 'COOKING';
+              const myItems = o.items.filter(i => (i.production_area || 'kitchen') === type);
 
-              {/* Items */}
-              <div className="flex-1 p-4 space-y-2">
-                {myItems.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => toggleItemCooked(item.id, item.is_cooked)}
-                    className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
-                      item.is_cooked
-                        ? 'bg-success/5 border-success/20 text-success opacity-50'
-                        : 'bg-bg border-border hover:border-primary-light'
-                    }`}
-                  >
-                    <div className="flex-1 flex justify-between items-center">
-                      <div className="flex flex-col">
-                        <span className={`font-black uppercase tracking-tight ${item.is_cooked ? 'line-through' : ''}`}>
-                          {item.name || 'Menu Item'}
-                        </span>
-                        {item.notes && (
-                          <span className="text-[10px] text-text-secondary font-bold italic">"{item.notes}"</span>
-                        )}
-                      </div>
-                      <span className="text-lg font-black bg-white px-3 py-1 rounded-lg border-2 border-border shadow-sm">
-                        x{item.quantity}
+              return (
+                <div
+                  key={o.id}
+                  className="bg-surface rounded-xl border-2 overflow-hidden shadow-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5"
+                  style={{ borderColor }}
+                >
+                  {/* Card Header */}
+                  <div className="px-3 py-2 flex justify-between items-center" style={{ background: headerBg }}>
+                    <div>
+                      <span className="text-sm font-black text-text-primary">{o.table_name || o.table_id.slice(0, 4)}</span>
+                      <span
+                        className="text-[9px] font-black px-1.5 py-0.5 rounded text-white ml-1.5"
+                        style={{ background: borderColor }}
+                      >
+                        {statusLabel}
                       </span>
+                      <div className="text-[9px] text-text-secondary font-medium">Order #{o.id.slice(0, 4).toUpperCase()}</div>
                     </div>
-                  </button>
-                ))}
-              </div>
+                    <span className={`text-base font-black font-mono ${
+                      el > 15 ? 'text-error' : el > 10 ? 'text-orange-500' : el > 5 ? 'text-warning' : 'text-text-primary'
+                    }`}>{el}m</span>
+                  </div>
 
-              {/* Footer Action */}
-              <div className="p-4 bg-bg/50 border-t border-border space-y-2">
-                {order.status === 'pending' && (
-                  <button
-                    onClick={() => startAllItems(order)}
-                    className="w-full h-14 rounded-xl bg-new text-white font-black uppercase tracking-widest hover:bg-yellow-600 shadow-lg shadow-new/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <Play size={20} />
-                    Start All Items
-                  </button>
-                )}
-                {order.status === 'cooking' && !allDone && (
-                  <button
-                    onClick={() => markAllDone(order)}
-                    className="w-full h-14 rounded-xl bg-success text-white font-black uppercase tracking-widest hover:bg-green-600 shadow-lg shadow-success/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <CheckCircle2 size={20} />
-                    Mark All Done
-                  </button>
-                )}
-                {(order.status === 'cooking' && allDone) || order.status === 'ready' ? (
-                  <button
-                    onClick={() => notifyWaiter(order)}
-                    className="w-full h-14 rounded-xl bg-primary text-white font-black uppercase tracking-widest hover:bg-primary-light shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <Bell size={20} />
-                    Notify Waiter — Order Ready
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          );
-        })
-      )}
+                  {/* Items */}
+                  {myItems.map((item, idx) => (
+                    <div
+                      key={item.id}
+                      className={`flex items-center gap-2 px-3 py-2 ${idx < myItems.length - 1 ? 'border-b border-border/50' : ''}`}
+                    >
+                      <span className={`flex-1 text-xs font-semibold ${item.is_cooked ? 'text-success line-through' : 'text-text-primary'}`}>
+                        {item.quantity}x {item.name || 'Item'}
+                        {item.notes && <span className="text-text-secondary italic ml-1">"{item.notes}"</span>}
+                      </span>
+                      {!item.is_cooked && o.status === 'pending' && (
+                        <button
+                          onClick={() => toggleItem(item.id, false)}
+                          className="px-2 py-1 rounded-md bg-orange-50 text-orange-600 text-[9px] font-bold hover:bg-orange-100 transition-colors flex items-center gap-1"
+                        >
+                          <Play size={10} /> Start
+                        </button>
+                      )}
+                      {!item.is_cooked && o.status === 'cooking' && (
+                        <button
+                          onClick={() => toggleItem(item.id, true)}
+                          className="px-2 py-1 rounded-md bg-success/10 text-success text-[9px] font-bold hover:bg-success/20 transition-colors flex items-center gap-1"
+                        >
+                          <Check size={10} /> Done
+                        </button>
+                      )}
+                      {item.is_cooked && <Check size={14} className="text-success" />}
+                    </div>
+                  ))}
+
+                  {/* Actions */}
+                  <div className="px-3 py-2 space-y-1.5">
+                    {o.status === 'pending' && (
+                      <button
+                        onClick={async () => { await updateStatus(o.id, 'cooking'); }}
+                        className="w-full h-9 rounded-lg bg-warning text-white text-xs font-bold hover:bg-amber-600 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
+                      >
+                        <Play size={14} /> Start All Items
+                      </button>
+                    )}
+                    {someCooking && !allReady && o.status === 'cooking' && (
+                      <button
+                        onClick={async () => { await Promise.all(myItems.filter(i => !i.is_cooked).map(i => toggleItem(i.id, true))); }}
+                        className="w-full h-9 rounded-lg bg-teal-500 text-white text-xs font-bold hover:bg-teal-600 transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
+                      >
+                        <Check size={14} /> Mark All Done
+                      </button>
+                    )}
+                    {(allReady || o.status === 'ready') && (
+                      <button
+                        onClick={() => updateStatus(o.id, 'ready')}
+                        className="w-full h-10 rounded-lg bg-success text-white text-sm font-black hover:bg-emerald-600 transition-all active:scale-[0.98] flex items-center justify-center gap-2 shadow-lg shadow-success/30"
+                      >
+                        <Bell size={16} /> NOTIFY WAITER — ORDER READY
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

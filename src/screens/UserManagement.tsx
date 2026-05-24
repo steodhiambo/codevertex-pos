@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { UserPlus, Shield, Loader2, X, Power } from 'lucide-react';
+import { UserPlus, Shield, Loader2, X, Power, Phone, KeyRound } from 'lucide-react';
 import { userApi } from '../lib/api';
 
 type Role = 'Admin' | 'Manager' | 'Waiter' | 'Kitchen' | 'Bar' | 'Cashier' | 'Receptionist';
@@ -7,18 +7,26 @@ type Role = 'Admin' | 'Manager' | 'Waiter' | 'Kitchen' | 'Bar' | 'Cashier' | 'Re
 interface UserRow {
   id: string;
   full_name: string;
+  phone?: string;
   role: Role;
   is_active: boolean;
 }
 
-const ROLES: { key: Role; label: string; icon: string; tint: string }[] = [
-  { key: 'Admin', label: 'Admin', icon: '🛡️', tint: 'bg-primary-pale text-primary border-primary' },
-  { key: 'Manager', label: 'Manager', icon: '👔', tint: 'bg-info/10 text-info border-info' },
-  { key: 'Receptionist', label: 'Receptionist', icon: '🛎️', tint: 'bg-teal-500/10 text-teal-600 border-teal-500' },
-  { key: 'Cashier', label: 'Cashier', icon: '💰', tint: 'bg-success/10 text-success border-success' },
-  { key: 'Waiter', label: 'Waiter', icon: '🍽️', tint: 'bg-info/10 text-info border-info' },
-  { key: 'Kitchen', label: 'Kitchen', icon: '🍳', tint: 'bg-orange-500/10 text-orange-500 border-orange-500' },
-  { key: 'Bar', label: 'Bar', icon: '🍺', tint: 'bg-info/10 text-info border-info' },
+const ROLES: { key: Role; label: string; icon: string; tint: string; preview: string[] }[] = [
+  { key: 'Admin', label: 'Admin', icon: '🛡️', tint: 'bg-primary-pale text-primary border-primary',
+    preview: ['All tabs visible', 'Take & settle orders', 'Void bills', 'Full analytics', 'Manage users', 'Manage stock'] },
+  { key: 'Manager', label: 'Manager', icon: '👔', tint: 'bg-info/10 text-info border-info',
+    preview: ['Dashboard, Tables, KDS, Bills, Rooms', 'Take & settle orders', 'Void bills', 'View analytics'] },
+  { key: 'Receptionist', label: 'Receptionist', icon: '🛎️', tint: 'bg-teal-500/10 text-teal-600 border-teal-500',
+    preview: ['Rooms & Facilities tabs', 'Check-in/out guests', 'Manage bookings'] },
+  { key: 'Cashier', label: 'Cashier', icon: '💰', tint: 'bg-success/10 text-success border-success',
+    preview: ['Bills tab only', 'Settle payments', 'Cash drawer mgmt'] },
+  { key: 'Waiter', label: 'Waiter', icon: '🍽️', tint: 'bg-info/10 text-info border-info',
+    preview: ['Tables & My Bills tabs', 'Take orders', 'View own bills'] },
+  { key: 'Kitchen', label: 'Kitchen', icon: '🍳', tint: 'bg-orange-500/10 text-orange-500 border-orange-500',
+    preview: ['Kitchen Display only', 'Start/cook items', 'Notify waiters'] },
+  { key: 'Bar', label: 'Bar', icon: '🍺', tint: 'bg-info/10 text-info border-info',
+    preview: ['Bar Display only', 'Prepare drinks', 'Notify waiters'] },
 ];
 
 const initials = (name: string) =>
@@ -29,8 +37,9 @@ const UserManagement: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState<{ full_name: string; role: Role; pin: string }>({
+  const [form, setForm] = useState<{ full_name: string; phone: string; role: Role; pin: string }>({
     full_name: '',
+    phone: '',
     role: 'Waiter',
     pin: '0000',
   });
@@ -54,12 +63,17 @@ const UserManagement: React.FC = () => {
     if (form.pin.length < 4) { setError('PIN must be at least 4 digits'); return; }
     setSubmitting(true); setError('');
     try {
-      await userApi.create({ full_name: form.full_name.trim(), role: form.role, pin: form.pin });
-      setForm({ full_name: '', role: 'Waiter', pin: '0000' });
+      await userApi.create({
+        full_name: form.full_name.trim(),
+        phone: form.phone.trim() || undefined,
+        role: form.role,
+        pin: form.pin,
+      });
+      setForm({ full_name: '', phone: '', role: 'Waiter', pin: '0000' });
       setShowForm(false);
       await fetchUsers();
     } catch (e: any) {
-      setError(e?.message || 'Failed to create user. PIN may already be in use.');
+      setError(e?.message || 'Failed to create user.');
     } finally {
       setSubmitting(false);
     }
@@ -71,6 +85,15 @@ const UserManagement: React.FC = () => {
       setUsers(prev => prev.map(x => x.id === u.id ? { ...x, is_active: !x.is_active } : x));
     } catch (e) {
       alert('Failed to toggle user');
+    }
+  };
+
+  const handleResetPin = async (userId: string, userName: string) => {
+    try {
+      await userApi.resetPin(userId);
+      alert(`PIN reset to 0000 for ${userName}`);
+    } catch (e: any) {
+      alert(e.message || 'Failed to reset PIN');
     }
   };
 
@@ -94,7 +117,7 @@ const UserManagement: React.FC = () => {
           <p className="text-sm text-text-secondary">{activeCount} active · {users.length} total</p>
         </div>
         <button
-          onClick={() => setShowForm(v => !v)}
+          onClick={() => { setShowForm(v => !v); setForm({ full_name: '', phone: '', role: 'Waiter', pin: '0000' }); setError(''); }}
           className="h-11 px-5 rounded-xl bg-primary text-white font-black uppercase tracking-wider text-xs hover:bg-primary-light shadow-lg shadow-primary/20 transition-all active:scale-95 flex items-center gap-2"
         >
           {showForm ? <X size={16} /> : <UserPlus size={16} />}
@@ -105,13 +128,22 @@ const UserManagement: React.FC = () => {
       {showForm && (
         <div className="card p-6 border-2 border-primary/20">
           <h3 className="font-black text-text-primary mb-4">New Staff Member</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
-              <label className="text-xs font-bold uppercase tracking-wider text-text-secondary block mb-1">Full Name</label>
+              <label className="text-xs font-bold uppercase tracking-wider text-text-secondary block mb-1">Full Name *</label>
               <input
                 value={form.full_name}
                 onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))}
                 placeholder="e.g. Mary Akinyi"
+                className="w-full h-11 px-3 rounded-lg bg-bg border border-border focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-text-secondary block mb-1">Phone Number</label>
+              <input
+                value={form.phone}
+                onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
+                placeholder="e.g. 0712345678"
                 className="w-full h-11 px-3 rounded-lg bg-bg border border-border focus:outline-none focus:border-primary"
               />
             </div>
@@ -123,26 +155,47 @@ const UserManagement: React.FC = () => {
                 inputMode="numeric"
                 className="w-full h-11 px-3 rounded-lg bg-bg border border-border focus:outline-none focus:border-primary font-mono tracking-widest"
               />
-              <p className="text-[10px] text-text-secondary mt-1">Default PIN is <b>0000</b>. Staff can change later via Forgot PIN flow.</p>
+              <p className="text-[10px] text-text-secondary mt-1">Default: <b>0000</b>. Staff can change via Forgot PIN.</p>
             </div>
           </div>
-          <label className="text-xs font-bold uppercase tracking-wider text-text-secondary block mb-2">Role</label>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {ROLES.map(r => {
-              const active = form.role === r.key;
-              return (
-                <button
-                  key={r.key}
-                  onClick={() => setForm(p => ({ ...p, role: r.key }))}
-                  className={`px-3 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ${
-                    active ? r.tint : 'bg-surface border-border text-text-secondary hover:border-primary-light'
-                  }`}
-                >
-                  {r.icon} {r.label}
-                </button>
-              );
-            })}
+
+          <div className="mb-4">
+            <label className="text-xs font-bold uppercase tracking-wider text-text-secondary block mb-2">Role *</label>
+            <div className="flex flex-wrap gap-2">
+              {ROLES.map(r => {
+                const active = form.role === r.key;
+                return (
+                  <button
+                    key={r.key}
+                    onClick={() => setForm(p => ({ ...p, role: r.key }))}
+                    className={`px-3 py-1.5 rounded-lg border-2 text-xs font-bold transition-all ${
+                      active ? r.tint : 'bg-surface border-border text-text-secondary hover:border-primary-light'
+                    }`}
+                  >
+                    {r.icon} {r.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          {/* Permission Preview */}
+          <div className="bg-bg rounded-xl p-4 mb-4 border border-border">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Shield size={14} className="text-primary" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+                {form.role} — Permissions Preview
+              </span>
+            </div>
+            <ul className="space-y-1">
+              {roleInfo(form.role).preview.map((perm, i) => (
+                <li key={i} className="text-[11px] text-text-secondary flex items-center gap-1.5">
+                  <span className="text-success">✓</span> {perm}
+                </li>
+              ))}
+            </ul>
+          </div>
+
           {error && <p className="text-xs font-bold text-error mb-3">{error}</p>}
           <div className="flex gap-3">
             <button
@@ -173,22 +226,37 @@ const UserManagement: React.FC = () => {
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-black text-text-primary truncate">{u.full_name}</h3>
+                {u.phone && (
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <Phone size={10} className="text-text-secondary" />
+                    <span className="text-[9px] text-text-secondary">{u.phone}</span>
+                  </div>
+                )}
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <Shield size={12} className="text-text-secondary" />
                   <span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">{r.icon} {r.label}</span>
                 </div>
               </div>
-              <button
-                onClick={() => toggleActive(u)}
-                className={`h-9 px-3 rounded-lg text-[10px] font-black uppercase tracking-wider border flex items-center gap-1 transition-all active:scale-95 ${
-                  u.is_active
-                    ? 'bg-surface text-error border-error/30 hover:bg-error/5'
-                    : 'bg-surface text-success border-success/30 hover:bg-success/5'
-                }`}
-              >
-                <Power size={12} />
-                {u.is_active ? 'Disable' : 'Enable'}
-              </button>
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => handleResetPin(u.id, u.full_name)}
+                  className="h-7 px-2 rounded-lg text-[8px] font-black uppercase tracking-wider border border-border bg-surface text-text-secondary hover:text-primary hover:border-primary transition-colors flex items-center gap-1"
+                  title="Reset PIN to default"
+                >
+                  <KeyRound size={10} /> PIN
+                </button>
+                <button
+                  onClick={() => toggleActive(u)}
+                  className={`h-7 px-2 rounded-lg text-[8px] font-black uppercase tracking-wider border flex items-center gap-1 transition-all active:scale-95 ${
+                    u.is_active
+                      ? 'bg-surface text-error border-error/30 hover:bg-error/5'
+                      : 'bg-surface text-success border-success/30 hover:bg-success/5'
+                  }`}
+                >
+                  <Power size={10} />
+                  {u.is_active ? 'Disable' : 'Enable'}
+                </button>
+              </div>
             </div>
           );
         })}
